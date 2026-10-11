@@ -16,6 +16,10 @@ The cards read each tool's own data in your browser. All the sites live on the s
 
 Open the site in Edge or Chrome and click **Install app** (or the install icon in the address bar). Review Deck then opens in its own window, and the three tools open inside it. Each tool has a **← Review Deck** link to come back.
 
+## Open it every morning
+
+Run `tools/enable-morning.bat` once. It creates a Windows scheduled task that opens Review Deck in its own window the first time you sign in, unlock or wake the PC each day. To undo it: `schtasks /delete /tn MorningReviewDeck /f`.
+
 ## Moving progress from the desktop Code Check app
 
 If you used the local *Morning Code Check* app, export its progress and import it here:
