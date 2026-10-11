@@ -1,18 +1,25 @@
-// Review Deck: one page for Code Check, Screen Map and Design Critic.
-// All of them live on yiftachneeman89.github.io, so they share this browser's storage:
-// Code Check's own quiz.js (loaded from ../code-check/) reads its progress, and the other two
-// leave a small summary behind (sm.summary, dc.summary) every time they're used.
+// Review Deck: sign in once (project folder + Gemini key), then Code Check, Screen Map and
+// Design Critic all use that project. All four sites live on yiftachneeman89.github.io, so they
+// share this browser's storage: the project in DeckStore (shared.js), the key and quiz in Code Check's store.
 
 (() => {
   const $ = (id) => document.getElementById(id);
-  const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
-  function readJson(key) {
-    try { return JSON.parse(localStorage.getItem(key)); } catch { return null; }
+  // ---------------------------------------------------------------- white / black mode
+
+  function setTheme(theme) {
+    if (theme === "dark") document.documentElement.dataset.theme = "dark";
+    else delete document.documentElement.dataset.theme;
+    try { localStorage.setItem("rd.theme", theme); } catch {}
+    document.querySelector('meta[name="theme-color"]').content = theme === "dark" ? "#0e0e0f" : "#f4f3ef";
+    for (const b of document.querySelectorAll("[data-theme-choice]")) b.classList.toggle("on", b.dataset.themeChoice === theme);
   }
+  for (const b of document.querySelectorAll("[data-theme-choice]")) b.onclick = () => setTheme(b.dataset.themeChoice);
+  setTheme(document.documentElement.dataset.theme === "dark" ? "dark" : "light");
+
+  // ---------------------------------------------------------------- one line about each tool
 
   function ago(t) {
-    if (!t) return "";
     const s = (Date.now() - t) / 1000;
     if (s < 90) return "just now";
     if (s < 3600) return `${Math.round(s / 60)} min ago`;
@@ -21,132 +28,69 @@
     return d === 1 ? "yesterday" : `${d} days ago`;
   }
 
-  function ring(pct, color) {
-    const p = Math.max(0, Math.min(100, pct || 0));
-    return `<div class="ring" style="--p:${p};--c:${color}"><span>${p < 10 && p > 0 ? p.toFixed(1) : Math.round(p)}<small>%</small></span></div>`;
+  function readJson(key) { try { return JSON.parse(localStorage.getItem(key)); } catch { return null; } }
+
+  function info(id, text) { $(id).textContent = text; }
+
+  function fillCards(project) {
+    try {
+      const m = Quiz.mastery(), st = dailyStatus();
+      const known = m.known_pct < 10 ? m.known_pct.toFixed(1) : Math.round(m.known_pct);
+      info("info-code-check", `${known}% known · ${st.streak}-day streak · today ${st.today_answered}/${st.goal}`);
+    } catch { /* keeps its tagline */ }
+    // the other two leave a summary when they open; only trust it if it's about the current code
+    const fresh = (s) => s && s.at >= project.savedAt;
+    const sm = readJson("sm.summary");
+    info("info-screen-map", fresh(sm) ? `${sm.screens} screens · ${sm.links} connections · starts at ${sm.start || "?"}` : "Your Android app as a flow chart");
+    const dc = readJson("dc.summary");
+    info("info-design-critic", fresh(dc) ? `Grade ${dc.grade} · ${dc.blocker + dc.major + dc.minor} open issues · ${dc.blocker} blocker${dc.blocker === 1 ? "" : "s"}` : "A design review that doesn't go easy on you");
   }
 
-  const empty = (text) => `<div class="empty-stats"><p>${text}</p></div>`;
+  // ---------------------------------------------------------------- sign in / new code
 
-  // ---------------------------------------------------------------- Code Check
+  let picked = null;   // [{path, file}] from the folder
+  let mode = "signin"; // or "newcode"
 
-  async function codeCheckStats() {
-    const box = $("stats-code-check");
-    let ok = false;
-    try { ok = typeof Session !== "undefined" && await Session.load(); } catch { ok = false; }
-    if (!ok) {
-      box.innerHTML = empty("Not set up yet. Finish the one-time setup to see your progress here.");
-      return null;
-    }
-    keepForever();
-    const m = Quiz.mastery();
-    const st = dailyStatus();
-    const hist = Quiz.history();
-    const rounds = allRounds();
-    const last = Object.keys(rounds).sort().pop();
-    const answered = Object.values(rounds).reduce((n, r) => n + Object.keys(r.answers || {}).length, 0);
-    const days = [];
-    for (let i = 6; i >= 0; i--) {
-      const d = new Date(); d.setDate(d.getDate() - i);
-      const iso = isoDate(d);
-      const h = hist.find((x) => x.date === iso);
-      days.push({ label: d.toLocaleDateString(undefined, { weekday: "narrow" }), met: h?.goal_met, some: h && h.answered > 0, today: i === 0 });
-    }
-    box.innerHTML = `
-      <div class="stat-main">
-        ${ring(m.known_pct, "var(--green)")}
-        <div>
-          <b class="big">${m.known_pct < 10 ? m.known_pct.toFixed(1) : Math.round(m.known_pct)}% known</b>
-          <span>${m.mastered_pct.toFixed(1)}% mastered · ${m.files.filter((f) => f.known_pct > 0).length} of ${m.files.length} files touched</span>
-          <span class="proj">${esc(Session.project.name)}</span>
-        </div>
-      </div>
-      <div class="stat-rows">
-        <div><span>Streak</span><b class="${st.streak ? "hot" : ""}">${st.streak} day${st.streak === 1 ? "" : "s"}</b></div>
-        <div><span>Today</span><b class="${st.goal_met ? "ok" : ""}">${st.today_answered}/${st.goal}${st.goal_met ? " ✓" : ""}</b></div>
-        <div><span>Answers</span><b>${answered}</b></div>
-      </div>
-      <div class="week">${days.map((d) => `<i class="${d.met ? "met" : d.some ? "some" : ""} ${d.today ? "today" : ""}" title="${d.met ? "goal met" : d.some ? "some answers" : "nothing"}">${d.label}</i>`).join("")}</div>
-      ${last ? `<p class="note">Last chunk: <b>${esc(rounds[last].title || rounds[last].chunk.owner)}</b></p>` : ""}`;
-    return { project: Session.project.name };
+  function showSetup(m) {
+    mode = m;
+    picked = null;
+    $("setupDrop").classList.remove("ready");
+    $("dropStatus").className = "drop-status";
+    $("dropStatus").textContent = "Nothing is uploaded. The files are read and kept right here in your browser.";
+    $("setupError").hidden = true;
+    $("setupTitle").textContent = m === "newcode" ? "New code" : "Sign in";
+    $("setupLead").textContent = m === "newcode"
+      ? "Pick the project folder again. Code Check, Screen Map and Design Critic all switch to the new code. Your key stays unless you change it."
+      : "Your code and Gemini key, once. All three tools use them, and nothing asks again.";
+    try { $("keyInput").value = (m === "newcode" ? Session.key : store.get("key")) || ""; } catch {}
+    $("cancelSetup").hidden = m !== "newcode";
+    $("startBtn").textContent = m === "newcode" ? "Use this code" : "Start";
+    $("setup").hidden = false;
+    $("deck").hidden = true;
+    $("topActions").hidden = true;
   }
 
-  // ---------------------------------------------------------------- Screen Map
-
-  function screenMapStats() {
-    const box = $("stats-screen-map");
-    const s = readJson("sm.summary");
-    if (!s) { box.innerHTML = empty("Open it once with your Android project and its numbers show up here."); return null; }
-    box.innerHTML = `
-      <div class="stat-main">
-        <div class="count"><b>${s.screens}</b><span>screens</span></div>
-        <div>
-          <b class="big">${s.links} connection${s.links === 1 ? "" : "s"}</b>
-          <span>${[s.activities && `${s.activities} activit${s.activities === 1 ? "y" : "ies"}`, s.fragments && `${s.fragments} fragment${s.fragments === 1 ? "" : "s"}`, s.dialogs && `${s.dialogs} pop-up${s.dialogs === 1 ? "" : "s"}`].filter(Boolean).join(" · ")}</span>
-          <span class="proj">${esc(s.project)}</span>
-        </div>
-      </div>
-      <div class="stat-rows">
-        <div><span>Starts at</span><b>${esc(s.start || "-")}</b></div>
-        <div><span>Buttons</span><b>${s.buttons ?? "-"}</b></div>
-        <div><span>Opened</span><b>${ago(s.at)}</b></div>
-      </div>`;
-    return { project: s.project };
+  function showDeck(project) {
+    $("setup").hidden = true;
+    $("deck").hidden = false;
+    $("topActions").hidden = false;
+    $("projectLine").textContent = `${project.name} · code from ${ago(project.savedAt)}`;
+    fillCards(project);
   }
 
-  // ---------------------------------------------------------------- Design Critic
-
-  function designCriticStats() {
-    const box = $("stats-design-critic");
-    const s = readJson("dc.summary");
-    if (!s) { box.innerHTML = empty("Run a review once and your grade and open issues show up here."); return null; }
-    const done = s.fixed + s.wont;
-    box.innerHTML = `
-      <div class="stat-main">
-        <div class="grade grade-${s.grade}">${s.grade}</div>
-        <div>
-          <b class="big">${s.score}/100</b>
-          <span>${s.blocker + s.major + s.minor} open issue${s.blocker + s.major + s.minor === 1 ? "" : "s"} across ${s.screens} screens</span>
-          <span class="proj">${esc(s.project)}</span>
-        </div>
-      </div>
-      <div class="sev">
-        <span class="sev-blocker"><b>${s.blocker}</b> blocker${s.blocker === 1 ? "" : "s"}</span>
-        <span class="sev-major"><b>${s.major}</b> major</span>
-        <span class="sev-minor"><b>${s.minor}</b> minor</span>
-      </div>
-      <div class="bar"><i style="width:${s.total ? (s.fixed / s.total) * 100 : 0}%"></i><i class="wont" style="width:${s.total ? (s.wont / s.total) * 100 : 0}%"></i></div>
-      <p class="note">${s.fixed} fixed${s.wont ? ` · ${s.wont} won't fix` : ""} of ${s.total} · scanned ${ago(s.at)}</p>`;
-    return { project: s.project };
-  }
-
-  // ---------------------------------------------------------------- one-time setup (the same as Code Check's sign-in)
-
-  let picked = null;    // { read, progress }
-  let skipped = false;
-
-  function showSetup(on) {
-    $("setup").hidden = !on;
-    for (const id of ["intro", "deckCards", "foot"]) $(id).hidden = on;
-    if (on) setTimeout(() => $("pickFolder").focus(), 50);
-  }
-
-  async function takeFiles(items) {
+  async function takeFolder(items) {
     const status = $("dropStatus"), drop = $("setupDrop");
     status.className = "drop-status";
     status.textContent = "Reading your code…";
     try {
-      const read = await readProject(items);
-      if (!read.files.length) throw new Error("No source code found there. Pick the folder that contains your project's code.");
-      const chunks = allChunks(read.files);
-      if (!chunks.length) throw new Error("That code is too short to quiz on. Add more files or the whole project.");
-      const progress = await findProgress(items);
-      picked = { read, progress };
-      if (!$("projectName").value) $("projectName").value = read.name || "";
+      const read = await readProject(items);  // Code Check's filter: is there code to quiz on?
+      if (!read.files.length || !allChunks(read.files).length) throw new Error("No code found there. Pick your project folder (the one with app/ in it).");
+      picked = { items, read };
+      if (!$("nameInput").value || mode === "signin") $("nameInput").value = read.name || $("nameInput").value;
       drop.classList.add("ready");
       status.className = "drop-status ok";
-      status.textContent = `✓ ${read.files.length} files · ${read.lines.toLocaleString()} lines · ${chunks.length} quiz chunks · ${mainLanguage(read.files)}` +
-        (progress ? ` · plus your progress from the old app: ${progress.count} chunks, ${progress.answers} answers` : "");
+      const res = items.filter(({ path }) => path.includes("/res/")).length;
+      status.textContent = `✓ ${read.files.length} code files · ${read.lines.toLocaleString()} lines · ${res} resources and images`;
     } catch (e) {
       picked = null;
       drop.classList.remove("ready");
@@ -155,71 +99,59 @@
     }
   }
 
-  async function finishSetup(e) {
+  async function submit(e) {
     e.preventDefault();
     const err = $("setupError"), btn = $("startBtn");
     const fail = (msg) => { err.textContent = msg; err.hidden = false; };
     err.hidden = true;
     const key = $("keyInput").value.trim();
-    if (!picked) return fail("Choose your project folder first (step 1).");
+    if (!picked) return fail("Choose your project folder first.");
     if (!key) return fail("Paste your Gemini API key (step 2).");
+    const label = btn.textContent;
     btn.disabled = true;
-    btn.textContent = "Checking your key…";
     try {
-      await checkKey(key);
-      const { read, progress } = picked;
-      const name = $("projectName").value.trim() || read.name || "My project";
-      await Session.save(key, { name, language: mainLanguage(read.files), files: read.files.length, lines: read.lines }, read.files);
-      mergeProgress(progress);
-      keepForever();
-      showSetup(false);
-      await refresh();
+      if (mode === "signin" || key !== Session.key) { btn.textContent = "Checking your key…"; await checkKey(key); }
+      btn.textContent = "Saving…";
+      const { items, read } = picked;
+      const name = $("nameInput").value.trim() || read.name || "My project";
+      const project = await DeckStore.save(name, items);                      // for Screen Map and Design Critic
+      await Session.save(key, { name, language: mainLanguage(read.files), files: read.files.length, lines: read.lines }, read.files);  // for Code Check
+      showDeck(project);
     } catch (ex) {
       fail(ex.message || String(ex));
     } finally {
       btn.disabled = false;
-      btn.textContent = "Start";
+      btn.textContent = label;
     }
   }
 
   $("pickFolder").onclick = () => $("folderInput").click();
-  $("pickFiles").onclick = () => $("filesInput").click();
-  for (const id of ["folderInput", "filesInput"]) {
-    $(id).onchange = (e) => { if (e.target.files.length) takeFiles(filesFromInput(e.target.files)); e.target.value = ""; };
-  }
+  $("folderInput").onchange = (e) => { if (e.target.files.length) takeFolder(filesFromInput(e.target.files)); e.target.value = ""; };
   const drop = $("setupDrop");
   drop.ondragover = (e) => { e.preventDefault(); drop.classList.add("over"); };
   drop.ondragleave = () => drop.classList.remove("over");
-  drop.ondrop = async (e) => { e.preventDefault(); drop.classList.remove("over"); takeFiles(await filesFromDrop(e.dataTransfer)); };
-  $("setupForm").onsubmit = finishSetup;
-  $("skipSetup").onclick = () => { skipped = true; showSetup(false); refresh(); };
+  drop.ondrop = async (e) => { e.preventDefault(); drop.classList.remove("over"); takeFolder(await filesFromDrop(e.dataTransfer)); };
+  $("setupForm").onsubmit = submit;
+  $("newCode").onclick = () => showSetup("newcode");
+  $("cancelSetup").onclick = () => start();
 
-  // ---------------------------------------------------------------- page
+  // ---------------------------------------------------------------- start
 
-  async function refresh() {
-    const cc = await codeCheckStats();
-    if (!cc && !skipped) { showSetup(true); return; }
-    const results = [screenMapStats(), designCriticStats(), cc].filter(Boolean);
-    const projects = [...new Set(results.map((r) => r.project).filter(Boolean))];
-    if (projects.length === 1) {
-      $("kicker").textContent = projects[0];
-      $("headline").textContent = "Pick a tool.";
-    }
+  async function start() {
+    const project = await DeckStore.project();
+    const signedIn = project && await Session.load().catch(() => false);
+    if (!signedIn) return showSetup("signin");
+    DeckStore.keepForever();
+    showDeck(project);
   }
 
-  for (const card of document.querySelectorAll(".card")) {
-    card.addEventListener("click", () => { try { sessionStorage.setItem("rd.from", "1"); } catch {} });
-  }
-
-  window.ReviewDeck = { refresh };
+  // coming back from a tool shows fresh numbers
+  window.addEventListener("pageshow", (e) => { if (e.persisted && !$("deck").hidden) start(); });
+  document.addEventListener("visibilitychange", () => { if (!document.hidden && !$("deck").hidden) start(); });
 
   // installable app
-  let installEvent = null;
-  window.addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); installEvent = e; $("installBtn").hidden = false; });
-  $("installBtn").onclick = async () => { if (!installEvent) return; installEvent.prompt(); await installEvent.userChoice; installEvent = null; $("installBtn").hidden = true; };
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
 
-  // coming back from a tool (or switching tabs) shows fresh numbers
-  window.addEventListener("pageshow", () => refresh());
-  document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
+  window.ReviewDeck = { start };
+  start();
 })();

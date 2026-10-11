@@ -4,15 +4,16 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Review Deck</title>
-  <meta name="description" content="Code Check, Screen Map and Design Critic in one place: how well you know your code, how your app fits together, and how good its design is.">
+  <meta name="description" content="Code Check, Screen Map and Design Critic on one shared project.">
   <meta name="theme-color" content="#f4f3ef">
+  <script>try { if (localStorage.getItem("rd.theme") === "dark") document.documentElement.dataset.theme = "dark"; } catch (e) {}</script>
   <link rel="icon" href="icons/logo.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=3">
+  <link rel="stylesheet" href="style.css?v=4">
 </head>
 <body>
   <header class="topbar">
@@ -20,93 +21,74 @@
       <img src="icons/logo.svg" alt="" class="brand-logo">
       <div>
         <h1>Review Deck</h1>
-        <p class="brand-sub">Your code, reviewed three ways</p>
+        <p class="brand-sub" id="projectLine">Your code, reviewed three ways</p>
       </div>
     </div>
-    <button class="pill-btn" id="installBtn" hidden>Install app</button>
+    <div class="top-actions" id="topActions" hidden>
+      <div class="theme-switch" role="group" aria-label="Colour mode">
+        <button type="button" data-theme-choice="light">White</button>
+        <button type="button" data-theme-choice="dark">Black</button>
+      </div>
+      <button class="pill-btn dark" id="newCode" title="Pick your project folder again - all three tools use the new code">New code</button>
+    </div>
   </header>
 
   <main>
     <section class="setup" id="setup" hidden>
       <form class="setup-card" id="setupForm">
-        <p class="kicker">One-time setup</p>
-        <h2>Set up Review Deck</h2>
-        <p class="lead">Pick your project and paste your Gemini key once. They stay in this browser, and Review Deck and Code Check won't ask again.</p>
+        <h2 id="setupTitle">Sign in</h2>
+        <p class="lead" id="setupLead">Your code and Gemini key, once. All three tools use them, and nothing asks again.</p>
 
         <div class="step">
           <h3><span class="step-num">1</span>Your code</h3>
-          <p class="step-hint">The whole project folder works best. Build folders, libraries and images are skipped automatically. Progress from the old desktop app in that folder is picked up too.</p>
+          <p class="step-hint">Your project folder - the one with <code>app/</code> in it. Build folders are skipped automatically.</p>
           <div class="drop" id="setupDrop">
             <p class="drop-title">Drop your project folder here</p>
-            <div class="drop-buttons">
-              <button type="button" class="pill-btn" id="pickFolder">Choose folder</button>
-              <button type="button" class="pill-btn" id="pickFiles">Choose files</button>
-            </div>
-            <p class="drop-status" id="dropStatus">Nothing is uploaded to a server. The files are read right here in your browser.</p>
+            <div class="drop-buttons"><button type="button" class="pill-btn" id="pickFolder">Choose folder</button></div>
+            <p class="drop-status" id="dropStatus">Nothing is uploaded. The files are read and kept right here in your browser.</p>
             <input type="file" id="folderInput" webkitdirectory multiple hidden>
-            <input type="file" id="filesInput" multiple hidden>
           </div>
-          <label class="field-label"><span>Project name</span><input type="text" class="field" id="projectName" placeholder="e.g. My Portfolio Site" maxlength="60"></label>
+          <label class="field-label"><span>Project name</span><input type="text" class="field" id="nameInput" placeholder="e.g. My App" maxlength="60"></label>
         </div>
 
-        <div class="step">
+        <div class="step" id="keyStep">
           <h3><span class="step-num">2</span>Your Gemini API key</h3>
-          <p class="step-hint">Free from <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a>. Sign in with Google, click <em>Create API key</em>, and paste it here.</p>
+          <p class="step-hint">Free from <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a>. Sign in with Google, click <em>Create API key</em>, paste it here.</p>
           <input type="password" class="field mono" id="keyInput" placeholder="Paste your key here" autocomplete="off" spellcheck="false">
         </div>
 
         <p class="setup-error" id="setupError" hidden></p>
         <div class="setup-actions">
-          <button type="button" class="link-btn" id="skipSetup">Skip for now</button>
+          <button type="button" class="pill-btn" id="cancelSetup" hidden>Cancel</button>
           <button type="submit" class="pill-btn dark big-btn" id="startBtn">Start</button>
         </div>
-        <p class="privacy">Your code and key stay in this browser and are sent only to Google Gemini when Code Check writes or grades questions.</p>
       </form>
     </section>
 
-    <section class="intro" id="intro">
-      <p class="kicker" id="kicker">Review Deck</p>
-      <h2 id="headline">Pick a tool.</h2>
-      <p class="lead" id="lead">How well you know your code, how your app fits together, and how good its design really is.</p>
-    </section>
-
-    <section class="deck" id="deckCards">
-      <a class="card" id="card-code-check" href="../code-check/" data-site="code-check">
-        <div class="card-head">
-          <img src="../code-check/icons/logo.svg" alt="" class="site-logo">
-          <div><h3>Code Check</h3><p>Quiz yourself on your own code</p></div>
-        </div>
-        <div class="stats" id="stats-code-check"><div class="skeleton"></div></div>
-        <span class="open">Open Code Check <i>→</i></span>
+    <section class="deck" id="deck" hidden>
+      <a class="card" href="/code-check/">
+        <img src="/code-check/icons/logo.svg" alt="" class="site-logo">
+        <div class="card-text"><h3>Code Check</h3><p id="info-code-check">Quiz yourself on your own code</p></div>
+        <span class="arrow">→</span>
       </a>
-
-      <a class="card" id="card-screen-map" href="../screen-map/" data-site="screen-map">
-        <div class="card-head">
-          <img src="../screen-map/icons/logo.svg" alt="" class="site-logo">
-          <div><h3>Screen Map</h3><p>Your Android app as a flow chart</p></div>
-        </div>
-        <div class="stats" id="stats-screen-map"><div class="skeleton"></div></div>
-        <span class="open">Open Screen Map <i>→</i></span>
+      <a class="card" href="/screen-map/">
+        <img src="/screen-map/icons/logo.svg" alt="" class="site-logo">
+        <div class="card-text"><h3>Screen Map</h3><p id="info-screen-map">Your Android app as a flow chart</p></div>
+        <span class="arrow">→</span>
       </a>
-
-      <a class="card" id="card-design-critic" href="../design-critic/" data-site="design-critic">
-        <div class="card-head">
-          <img src="../design-critic/icons/logo.svg" alt="" class="site-logo">
-          <div><h3>Design Critic</h3><p>A design review that doesn't go easy on you</p></div>
-        </div>
-        <div class="stats" id="stats-design-critic"><div class="skeleton"></div></div>
-        <span class="open">Open Design Critic <i>→</i></span>
+      <a class="card" href="/design-critic/">
+        <img src="/design-critic/icons/logo.svg" alt="" class="site-logo">
+        <div class="card-text"><h3>Design Critic</h3><p id="info-design-critic">A design review that doesn't go easy on you</p></div>
+        <span class="arrow">→</span>
       </a>
     </section>
-
-    <p class="foot" id="foot">Everything stays in this browser. Each tool keeps its own data; Review Deck only reads it to show the numbers above.
-</p>
   </main>
 
-  <script src="../code-check/js/ingest.js?v=3"></script>
-  <script src="../code-check/js/chunks.js?v=3"></script>
-  <script src="../code-check/js/ai.js?v=3"></script>
-  <script src="../code-check/js/quiz.js?v=3"></script>
-  <script src="app.js?v=3"></script>
+  <script src="shared.js?v=4"></script>
+  <script src="/code-check/js/ingest.js?v=4"></script>
+  <script src="/code-check/js/chunks.js?v=4"></script>
+  <script src="/code-check/js/ai.js?v=4"></script>
+  <script src="/code-check/js/quiz.js?v=4"></script>
+  <script src="app.js?v=4"></script>
 </body>
 </html>
