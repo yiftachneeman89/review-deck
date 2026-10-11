@@ -30,20 +30,98 @@
 
   function readJson(key) { try { return JSON.parse(localStorage.getItem(key)); } catch { return null; } }
 
-  function info(id, text) { $(id).textContent = text; }
+  const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const plural = (n, one, many = one + "s") => `${n} ${n === 1 ? one : many}`;
+  const pct = (v) => (v > 0 && v < 10 ? v.toFixed(1) : Math.round(v)) + "%";
+  const row = (label, value) => `<div class="row"><span>${label}</span><b>${value}</b></div>`;
+  const bar = (parts) => `<div class="bar">${parts.map(([w, cls]) => `<i class="${cls}" style="width:${Math.max(0, Math.min(100, w))}%"></i>`).join("")}</div>`;
+  const busy = (text) => `<div class="busy"><i></i>${text}</div>`;
+
+  // Code Check: how much of the project you've completed
+  function codeCheckDetails() {
+    const m = Quiz.mastery(), st = dailyStatus();
+    const rounds = Object.values(allRounds());
+    const ids = new Set(Session.chunks.map((c) => c.id));
+    const done = new Set(rounds.filter((r) => Object.keys(r.answers || {}).length && ids.has(r.chunk.id)).map((r) => r.chunk.id));
+    const scores = rounds.flatMap((r) => Object.values(r.answers || {}).filter((a) => a.feedback).map((a) => a.feedback.score));
+    const avg = scores.length ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : null;
+    const touched = m.files.filter((f) => f.known_pct > 0).length;
+    $("info-code-check").textContent = `${pct(m.known_pct)} of your code completed`;
+    $("det-code-check").innerHTML = `
+      ${bar([[m.mastered_pct, "good"], [m.learning_pct, "mid"]])}
+      <p class="legend"><i class="good"></i>${pct(m.mastered_pct)} mastered <i class="mid"></i>${pct(m.learning_pct)} learning <i></i>${pct(Math.max(0, 100 - m.mastered_pct - m.learning_pct))} not seen yet</p>
+      ${row("Chunks done", `${done.size} of ${Session.chunks.length}`)}
+      ${row("Files touched", `${touched} of ${m.files.length}`)}
+      ${row("Answers", scores.length ? `${scores.length} · average ${avg}/100` : "none yet")}
+      ${row("Streak", plural(st.streak, "day"))}
+      ${row("Today", `${st.today_answered} of ${st.goal}${st.goal_met ? " · goal met" : ""}`)}`;
+  }
+
+  // Screen Map: what the app is made of
+  function screenMapDetails(s) {
+    $("info-screen-map").textContent = `${plural(s.screens, "screen")} and ${plural(s.links, "connection")}`;
+    const kinds = [s.activities && plural(s.activities, "activity", "activities"), s.fragments && plural(s.fragments, "fragment"), s.dialogs && plural(s.dialogs, "pop-up")].filter(Boolean).join(" · ");
+    $("det-screen-map").innerHTML = `
+      ${row("Screens", kinds || s.screens)}
+      ${row("Connections", s.autoLinks != null ? `${s.links} · ${s.autoLinks} automatic` : s.links)}
+      ${row("Buttons with code", s.buttons ?? "-")}
+      ${s.layouts != null ? row("XML layouts", s.layouts) : ""}
+      ${row("App starts at", esc(s.start || "-"))}
+      ${s.unreachable ? row("Nothing leads to", s.unreachable.length ? esc(s.unreachable.slice(0, 3).join(", ")) + (s.unreachable.length > 3 ? ` +${s.unreachable.length - 3}` : "") : "none") : ""}`;
+  }
+
+  // Design Critic: how many problems, and what kind
+  const CATS = { accessibility: "Accessibility", color: "Color", typography: "Typography", layout: "Layout", states: "States", copy: "Copy" };
+  function designCriticDetails(s) {
+    const open = s.blocker + s.major + s.minor;
+    $("info-design-critic").textContent = `Grade ${s.grade} · ${s.score}/100 · ${plural(open, "open issue")}`;
+    const cats = s.cats || {};
+    const max = Math.max(1, ...Object.values(cats));
+    $("det-design-critic").innerHTML = `
+      <div class="sev"><span class="blocker"><b>${s.blocker}</b> ${s.blocker === 1 ? "blocker" : "blockers"}</span><span class="major"><b>${s.major}</b> major</span><span class="minor"><b>${s.minor}</b> minor</span></div>
+      ${Object.keys(cats).length ? `<div class="cats">${Object.entries(CATS).map(([k, label]) => `<div class="cat"><span>${label}</span><i style="width:${(cats[k] || 0) / max * 100}%"></i><b>${cats[k] || 0}</b></div>`).join("")}</div>` : ""}
+      ${s.worst ? row("Worst screen", `${esc(s.worst.screen)} · ${plural(s.worst.count, "issue")}`) : ""}
+      ${row("Fixed", `${s.fixed} of ${s.total}${s.wont ? ` · ${s.wont} won't fix` : ""}`)}
+      ${s.blockers && s.blockers.length ? `<p class="first">First to fix: ${esc(s.blockers[0])}</p>` : ""}`;
+  }
+
+  // ---------------------------------------------------------------- fresh numbers for Screen Map and Design Critic
+  // They write a summary whenever they run. If it's missing or older than the current code,
+  // run the tool unseen in a frame (same site, same project) and wait for it.
+
+  const running = {};
+  function runInBackground(tool, key, label) {
+    if (running[tool]) return;
+    $(`det-${tool}`).innerHTML = busy(label);
+    const frame = document.createElement("iframe");
+    frame.src = `/${tool}/`;
+    frame.className = "bg-run";
+    frame.setAttribute("aria-hidden", "true");
+    frame.tabIndex = -1;
+    running[tool] = frame;
+    const finish = () => { clearTimeout(timer); window.removeEventListener("storage", onStore); frame.remove(); delete running[tool]; };
+    const onStore = (e) => { if (e.key === key) { finish(); refreshTools(); } };
+    const timer = setTimeout(() => { finish(); $(`det-${tool}`).innerHTML = `<p class="note">Open it once to see the details.</p>`; }, 180000);
+    window.addEventListener("storage", onStore);
+    document.body.append(frame);
+  }
+
+  let current = null;
+  function refreshTools() {
+    if (!current) return;
+    const fresh = (s) => s && s.at >= current.savedAt;
+    const sm = readJson("sm.summary"), dc = readJson("dc.summary");
+    if (fresh(sm)) screenMapDetails(sm); else runInBackground("screen-map", "sm.summary", "Mapping your screens…");
+    // one at a time: the review starts after the map is done
+    if (fresh(dc)) designCriticDetails(dc);
+    else if (fresh(sm)) runInBackground("design-critic", "dc.summary", "Reviewing your design…");
+    else $("det-design-critic").innerHTML = busy("Waiting to review your design…");
+  }
 
   function fillCards(project) {
-    try {
-      const m = Quiz.mastery(), st = dailyStatus();
-      const known = m.known_pct < 10 ? m.known_pct.toFixed(1) : Math.round(m.known_pct);
-      info("info-code-check", `${known}% known · ${st.streak}-day streak · today ${st.today_answered}/${st.goal}`);
-    } catch { /* keeps its tagline */ }
-    // the other two leave a summary when they open; only trust it if it's about the current code
-    const fresh = (s) => s && s.at >= project.savedAt;
-    const sm = readJson("sm.summary");
-    info("info-screen-map", fresh(sm) ? `${sm.screens} screens · ${sm.links} connections · starts at ${sm.start || "?"}` : "Your Android app as a flow chart");
-    const dc = readJson("dc.summary");
-    info("info-design-critic", fresh(dc) ? `Grade ${dc.grade} · ${dc.blocker + dc.major + dc.minor} open issues · ${dc.blocker} blocker${dc.blocker === 1 ? "" : "s"}` : "A design review that doesn't go easy on you");
+    current = project;
+    try { codeCheckDetails(); } catch { /* keeps its tagline */ }
+    refreshTools();
   }
 
   // ---------------------------------------------------------------- sign in / new code

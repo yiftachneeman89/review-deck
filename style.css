@@ -102,3 +102,39 @@ main { max-width: 1180px; margin: 0 auto; padding: 48px 28px 60px; }
   .card { min-height: 0; flex-direction: row; align-items: center; }
   .topbar { flex-wrap: wrap; }
 }
+
+/* full details on each card */
+.card { gap: 18px; }
+.details { width: 100%; display: flex; flex-direction: column; gap: 0; font-size: 13.5px; }
+.details .row { display: flex; justify-content: space-between; gap: 12px; padding: 7px 0; border-top: 1px solid var(--line); }
+.details .row span { color: var(--ink-2); }
+.details .row b { font-weight: 600; text-align: right; }
+.bar { height: 10px; border-radius: 5px; background: var(--sunk); border: 1px solid var(--line); display: flex; overflow: hidden; margin-bottom: 8px; }
+.bar i { display: block; height: 100%; }
+.bar i.good { background: var(--green); }
+.bar i.mid { background: #d9a50b; }
+.legend { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; margin: 0 0 8px; font-size: 12px; color: var(--ink-2); }
+.legend i { width: 9px; height: 9px; border-radius: 3px; background: var(--line-2); margin-left: 6px; }
+.legend i:first-child { margin-left: 0; }
+.legend i.good { background: var(--green); }
+.legend i.mid { background: #d9a50b; }
+.sev { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+.sev span { font-size: 12.5px; padding: 4px 10px; border-radius: 8px; border: 1px solid currentColor; }
+.sev b { font-weight: 800; }
+.sev .blocker { color: var(--red); }
+.sev .major { color: #d9620b; }
+.sev .minor { color: #a08c12; }
+.cats { display: grid; gap: 5px; margin-bottom: 8px; }
+.cat { display: grid; grid-template-columns: 96px 1fr 30px; align-items: center; gap: 8px; font-size: 12.5px; }
+.cat span { color: var(--ink-2); }
+.cat i { height: 8px; border-radius: 4px; background: var(--ink); }
+.cat b { text-align: right; }
+.first { margin: 8px 0 0; font-size: 12.5px; color: var(--ink-2); }
+.note { margin: 0; font-size: 13px; color: var(--ink-3); }
+.busy { display: flex; align-items: center; gap: 10px; padding: 10px 0; color: var(--ink-2); font-size: 13.5px; }
+.busy i { width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--line-2); border-top-color: var(--ink); animation: spin .9s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.bg-run { position: fixed; left: -12000px; top: 0; width: 1440px; height: 900px; border: 0; pointer-events: none; }
+.card { justify-content: flex-start; }
+.card .arrow { margin-top: auto; }
+.card .card-text { flex: none; }
