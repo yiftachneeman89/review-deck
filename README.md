@@ -20,12 +20,16 @@ Open the site in Edge or Chrome and click **Install app** (or the install icon i
 
 Run `tools/enable-morning.bat` once. It creates a Windows scheduled task that opens Review Deck in its own window the first time you sign in, unlock or wake the PC each day. To undo it: `schtasks /delete /tn MorningReviewDeck /f`.
 
-## Moving progress from the desktop Code Check app
+## One-time setup
 
-If you used the local *Morning Code Check* app, export its progress and import it here:
+The first time you open Review Deck it asks for two things, like Code Check's sign-in: your project folder and your Gemini API key. They're saved in the browser (and the browser is asked to keep them for good), so neither Review Deck nor Code Check asks again.
+
+### Progress from the old desktop app
+
+If you used the local *Morning Code Check* app, run this once:
 
 ```
-python tools/export_morning.py <path-to-IntuiteacherDailyQuiz> code-check-progress.json
+python tools/export_morning.py <path-to-IntuiteacherDailyQuiz>
 ```
 
-Then click **Import progress file** in Review Deck. Your rounds, answers, scores, the project's code and the Gemini key move into Code Check. The export file contains your API key, so delete it after importing.
+It writes `code-check-progress.json` (rounds, answers and scores only - no key, no code) into the root of your project folder. When you pick that folder during setup, the progress is found and added automatically.

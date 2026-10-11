@@ -1,10 +1,12 @@
-"""Export Morning Code Check (the local desktop app) progress into a file Review Deck can import.
+"""Export Morning Code Check (the local desktop app) progress for Code Check / Review Deck.
 
-The file holds what the web Code Check keeps in the browser: the project's code (same filtering as
-the site's upload), the Gemini key, every round with its answers and scores, and the used-chunk list.
-It contains your API key - delete it after importing.
+Default: writes code-check-progress.json (rounds, answers, scores, used chunks - no key, no code)
+into the root of the project folder. When you set up Code Check or Review Deck and pick that folder,
+the progress is found and merged automatically.
 
-usage: python export_morning.py [path-to-IntuiteacherDailyQuiz] [output.json]
+--full writes everything (also the code and the Gemini key) to the given output file instead.
+
+usage: python export_morning.py [path-to-IntuiteacherDailyQuiz] [--full output.json]
 """
 import json
 import os
@@ -89,8 +91,8 @@ def main_language(files):
 
 
 def main():
-    app_dir = Path(sys.argv[1] if len(sys.argv) > 1 else Path.home() / "IntuiteacherDailyQuiz")
-    out = Path(sys.argv[2]) if len(sys.argv) > 2 else Path("code-check-progress.json")
+    app_dir = Path(sys.argv[1] if len(sys.argv) > 1 and not sys.argv[1].startswith("--") else Path.home() / "IntuiteacherDailyQuiz")
+    full = "--full" in sys.argv
     config = json.loads((app_dir / "config.json").read_text(encoding="utf-8"))
     project_root = Path(config["project_path"])
     files = read_project(project_root)
@@ -104,6 +106,13 @@ def main():
         rounds[rid] = state
     used_file = app_dir / "data" / "used.json"
     used = json.loads(used_file.read_text(encoding="utf-8")) if used_file.exists() else []
+    if not full:
+        out = project_root / "code-check-progress.json"
+        progress = {"format": "code-check/progress@1", "project": project_root.name, "rounds": rounds, "used": used}
+        out.write_text(json.dumps(progress, ensure_ascii=False, indent=1), encoding="utf-8")
+        print(f"{out}: {len(rounds)} rounds, {sum(len(r['answers']) for r in rounds.values())} answers (no key, no code)")
+        return
+    out = Path(sys.argv[sys.argv.index("--full") + 1])
     export = {
         "format": "review-deck/code-check-import@1",
         "key": config.get("gemini_api_key", ""),

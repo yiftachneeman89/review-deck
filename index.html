@@ -12,7 +12,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=2">
+  <link rel="stylesheet" href="style.css?v=3">
 </head>
 <body>
   <header class="topbar">
@@ -27,13 +27,50 @@
   </header>
 
   <main>
-    <section class="intro">
+    <section class="setup" id="setup" hidden>
+      <form class="setup-card" id="setupForm">
+        <p class="kicker">One-time setup</p>
+        <h2>Set up Review Deck</h2>
+        <p class="lead">Pick your project and paste your Gemini key once. They stay in this browser, and Review Deck and Code Check won't ask again.</p>
+
+        <div class="step">
+          <h3><span class="step-num">1</span>Your code</h3>
+          <p class="step-hint">The whole project folder works best. Build folders, libraries and images are skipped automatically. Progress from the old desktop app in that folder is picked up too.</p>
+          <div class="drop" id="setupDrop">
+            <p class="drop-title">Drop your project folder here</p>
+            <div class="drop-buttons">
+              <button type="button" class="pill-btn" id="pickFolder">Choose folder</button>
+              <button type="button" class="pill-btn" id="pickFiles">Choose files</button>
+            </div>
+            <p class="drop-status" id="dropStatus">Nothing is uploaded to a server. The files are read right here in your browser.</p>
+            <input type="file" id="folderInput" webkitdirectory multiple hidden>
+            <input type="file" id="filesInput" multiple hidden>
+          </div>
+          <label class="field-label"><span>Project name</span><input type="text" class="field" id="projectName" placeholder="e.g. My Portfolio Site" maxlength="60"></label>
+        </div>
+
+        <div class="step">
+          <h3><span class="step-num">2</span>Your Gemini API key</h3>
+          <p class="step-hint">Free from <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a>. Sign in with Google, click <em>Create API key</em>, and paste it here.</p>
+          <input type="password" class="field mono" id="keyInput" placeholder="Paste your key here" autocomplete="off" spellcheck="false">
+        </div>
+
+        <p class="setup-error" id="setupError" hidden></p>
+        <div class="setup-actions">
+          <button type="button" class="link-btn" id="skipSetup">Skip for now</button>
+          <button type="submit" class="pill-btn dark big-btn" id="startBtn">Start</button>
+        </div>
+        <p class="privacy">Your code and key stay in this browser and are sent only to Google Gemini when Code Check writes or grades questions.</p>
+      </form>
+    </section>
+
+    <section class="intro" id="intro">
       <p class="kicker" id="kicker">Review Deck</p>
       <h2 id="headline">Pick a tool.</h2>
       <p class="lead" id="lead">How well you know your code, how your app fits together, and how good its design really is.</p>
     </section>
 
-    <section class="deck" id="deck">
+    <section class="deck" id="deckCards">
       <a class="card" id="card-code-check" href="../code-check/" data-site="code-check">
         <div class="card-head">
           <img src="../code-check/icons/logo.svg" alt="" class="site-logo">
@@ -62,24 +99,14 @@
       </a>
     </section>
 
-    <section class="import" id="importBox">
-      <div>
-        <h4>Set up Code Check once</h4>
-        <p id="importText">Pick a <code>code-check-progress.json</code> setup file - from the desktop app, or downloaded from Review Deck in another browser. Your Gemini key, code and progress move into Code Check here and it won't ask again. Nothing is uploaded; it stays in this browser.</p>
-      </div>
-      <label class="pill-btn dark" id="importLabel">
-        <input type="file" id="importFile" accept=".json,application/json" hidden>
-        Import progress file
-      </label>
-    </section>
-
-    <p class="foot">Everything stays in this browser. Each tool keeps its own data; Review Deck only reads it to show the numbers above.
-      <button class="link-btn" id="importAgain" hidden>Import a Code Check setup file</button>
-      <button class="link-btn" id="exportSetup" hidden>Download Code Check setup (to use it in another browser)</button></p>
+    <p class="foot" id="foot">Everything stays in this browser. Each tool keeps its own data; Review Deck only reads it to show the numbers above.
+</p>
   </main>
 
-  <script src="../code-check/js/chunks.js?v=2"></script>
-  <script src="../code-check/js/quiz.js?v=2"></script>
-  <script src="app.js?v=2"></script>
+  <script src="../code-check/js/ingest.js?v=3"></script>
+  <script src="../code-check/js/chunks.js?v=3"></script>
+  <script src="../code-check/js/ai.js?v=3"></script>
+  <script src="../code-check/js/quiz.js?v=3"></script>
+  <script src="app.js?v=3"></script>
 </body>
 </html>

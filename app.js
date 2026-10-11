@@ -26,8 +26,6 @@
     return `<div class="ring" style="--p:${p};--c:${color}"><span>${p < 10 && p > 0 ? p.toFixed(1) : Math.round(p)}<small>%</small></span></div>`;
   }
 
-  let importOpen = false;  // the import box stays open after "Import again" or a fresh import
-
   const empty = (text) => `<div class="empty-stats"><p>${text}</p></div>`;
 
   // ---------------------------------------------------------------- Code Check
@@ -37,13 +35,9 @@
     let ok = false;
     try { ok = typeof Session !== "undefined" && await Session.load(); } catch { ok = false; }
     if (!ok) {
-      box.innerHTML = empty("Not set up yet. Open it and upload your project, or import your desktop progress below.");
-      $("importBox").classList.add("highlight");
+      box.innerHTML = empty("Not set up yet. Finish the one-time setup to see your progress here.");
       return null;
     }
-    $("importBox").hidden = importOpen ? false : true;
-    $("importAgain").hidden = !$("importBox").hidden;
-    $("exportSetup").hidden = false;
     keepForever();
     const m = Quiz.mastery();
     const st = dailyStatus();
@@ -126,48 +120,86 @@
     return { project: s.project };
   }
 
-  // ---------------------------------------------------------------- importing the desktop app's progress
+  // ---------------------------------------------------------------- one-time setup (the same as Code Check's sign-in)
 
-  async function importProgress(file) {
-    const label = $("importLabel"), text = $("importText");
-    let data;
-    try { data = JSON.parse(await file.text()); } catch { text.textContent = "That file isn't valid JSON."; return; }
-    if (data.format !== "review-deck/code-check-import@1" || !Array.isArray(data.files) || !data.rounds) {
-      text.textContent = "That isn't a Code Check progress file. Pick the code-check-progress.json made from the desktop app.";
-      return;
-    }
-    const had = await Session.load().catch(() => false);
-    if (had && Session.project && Session.project.name !== data.project.name &&
-        !confirm(`Code Check here is set up for “${Session.project.name}”. Replace it with “${data.project.name}” from the desktop app? Progress for the old project will be kept but won't match the new code.`)) return;
-    label.classList.add("busy");
+  let picked = null;    // { read, progress }
+  let skipped = false;
+
+  function showSetup(on) {
+    $("setup").hidden = !on;
+    for (const id of ["intro", "deckCards", "foot"]) $(id).hidden = on;
+    if (on) setTimeout(() => $("pickFolder").focus(), 50);
+  }
+
+  async function takeFiles(items) {
+    const status = $("dropStatus"), drop = $("setupDrop");
+    status.className = "drop-status";
+    status.textContent = "Reading your code…";
     try {
-      await Session.save(data.key || Session.key || "", data.project, data.files);
-      // merge rounds: keep whichever copy of a round has more answers
-      const rounds = allRounds();
-      let added = 0;
-      for (const [rid, r] of Object.entries(data.rounds)) {
-        const mine = rounds[rid];
-        if (!mine || Object.keys(mine.answers || {}).length < Object.keys(r.answers || {}).length) { rounds[rid] = r; added++; }
-      }
-      store.setJson("rounds", rounds);
-      store.setJson("used", [...new Set([...(store.json("used", [])), ...(data.used || [])])]);
-      const answers = Object.values(data.rounds).reduce((n, r) => n + Object.keys(r.answers || {}).length, 0);
-      text.innerHTML = `<b>Imported.</b> ${data.files.length} files of ${esc(data.project.name)}, ${added} round${added === 1 ? "" : "s"} and ${answers} answers are now in Code Check. You can delete the progress file - it contains your API key.`;
-      $("importBox").classList.remove("highlight");
-      $("importBox").classList.add("done");
-      importOpen = true;
-      await refresh();
+      const read = await readProject(items);
+      if (!read.files.length) throw new Error("No source code found there. Pick the folder that contains your project's code.");
+      const chunks = allChunks(read.files);
+      if (!chunks.length) throw new Error("That code is too short to quiz on. Add more files or the whole project.");
+      const progress = await findProgress(items);
+      picked = { read, progress };
+      if (!$("projectName").value) $("projectName").value = read.name || "";
+      drop.classList.add("ready");
+      status.className = "drop-status ok";
+      status.textContent = `✓ ${read.files.length} files · ${read.lines.toLocaleString()} lines · ${chunks.length} quiz chunks · ${mainLanguage(read.files)}` +
+        (progress ? ` · plus your progress from the old app: ${progress.count} chunks, ${progress.answers} answers` : "");
     } catch (e) {
-      text.textContent = "Import failed: " + (e.message || e);
-    } finally {
-      label.classList.remove("busy");
+      picked = null;
+      drop.classList.remove("ready");
+      status.className = "drop-status bad";
+      status.textContent = e.message;
     }
   }
+
+  async function finishSetup(e) {
+    e.preventDefault();
+    const err = $("setupError"), btn = $("startBtn");
+    const fail = (msg) => { err.textContent = msg; err.hidden = false; };
+    err.hidden = true;
+    const key = $("keyInput").value.trim();
+    if (!picked) return fail("Choose your project folder first (step 1).");
+    if (!key) return fail("Paste your Gemini API key (step 2).");
+    btn.disabled = true;
+    btn.textContent = "Checking your key…";
+    try {
+      await checkKey(key);
+      const { read, progress } = picked;
+      const name = $("projectName").value.trim() || read.name || "My project";
+      await Session.save(key, { name, language: mainLanguage(read.files), files: read.files.length, lines: read.lines }, read.files);
+      mergeProgress(progress);
+      keepForever();
+      showSetup(false);
+      await refresh();
+    } catch (ex) {
+      fail(ex.message || String(ex));
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "Start";
+    }
+  }
+
+  $("pickFolder").onclick = () => $("folderInput").click();
+  $("pickFiles").onclick = () => $("filesInput").click();
+  for (const id of ["folderInput", "filesInput"]) {
+    $(id).onchange = (e) => { if (e.target.files.length) takeFiles(filesFromInput(e.target.files)); e.target.value = ""; };
+  }
+  const drop = $("setupDrop");
+  drop.ondragover = (e) => { e.preventDefault(); drop.classList.add("over"); };
+  drop.ondragleave = () => drop.classList.remove("over");
+  drop.ondrop = async (e) => { e.preventDefault(); drop.classList.remove("over"); takeFiles(await filesFromDrop(e.dataTransfer)); };
+  $("setupForm").onsubmit = finishSetup;
+  $("skipSetup").onclick = () => { skipped = true; showSetup(false); refresh(); };
 
   // ---------------------------------------------------------------- page
 
   async function refresh() {
-    const results = [screenMapStats(), designCriticStats(), await codeCheckStats()].filter(Boolean);
+    const cc = await codeCheckStats();
+    if (!cc && !skipped) { showSetup(true); return; }
+    const results = [screenMapStats(), designCriticStats(), cc].filter(Boolean);
     const projects = [...new Set(results.map((r) => r.project).filter(Boolean))];
     if (projects.length === 1) {
       $("kicker").textContent = projects[0];
@@ -178,27 +210,8 @@
   for (const card of document.querySelectorAll(".card")) {
     card.addEventListener("click", () => { try { sessionStorage.setItem("rd.from", "1"); } catch {} });
   }
-  $("importAgain").onclick = () => { importOpen = true; $("importBox").hidden = false; $("importAgain").hidden = true; $("importBox").scrollIntoView({ behavior: "smooth" }); };
-  $("exportSetup").onclick = exportSetup;
-  $("importFile").addEventListener("change", (e) => { if (e.target.files[0]) importProgress(e.target.files[0]); e.target.value = ""; });
 
-  // everything Code Check needs, in the same format as the desktop export - import it in another browser once
-  async function exportSetup() {
-    if (!(await Session.load().catch(() => false))) return;
-    const data = {
-      format: "review-deck/code-check-import@1",
-      key: Session.key, project: Session.project, files: Session.files,
-      rounds: allRounds(), used: store.json("used", []),
-    };
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(new Blob([JSON.stringify(data)], { type: "application/json" }));
-    a.download = "code-check-progress.json";
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-    alert("Saved code-check-progress.json. Open Review Deck in the other browser and import it. The file holds your Gemini key, so delete it afterwards.");
-  }
-
-  window.ReviewDeck = { importProgress, refresh, exportSetup };
+  window.ReviewDeck = { refresh };
 
   // installable app
   let installEvent = null;
