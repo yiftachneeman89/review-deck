@@ -242,18 +242,20 @@
     $("setup").hidden = true;
     $("deck").hidden = false;
     $("topActions").hidden = false;
-    $("projectLine").textContent = `${project.name} · code from ${ago(project.savedAt)}`;
+    $("projectLine").textContent = project.linked
+      ? `${project.name} · kept up to date with your folder · last change ${ago(project.savedAt)}`
+      : `${project.name} · code from ${ago(project.savedAt)}`;
     fillCards(project);
   }
 
-  async function takeFolder(items) {
+  async function takeFolder(items, dir = null) {
     const status = $("dropStatus"), drop = $("setupDrop");
     status.className = "drop-status";
     status.textContent = "Reading your code…";
     try {
       const read = await readProject(items);  // Code Check's filter: is there code to quiz on?
       if (!read.files.length || !allChunks(read.files).length) throw new Error("No code found there. Pick your project folder (the one with app/ in it).");
-      picked = { items, read };
+      picked = { items, read, dir };
       if (!$("nameInput").value || mode === "signin") $("nameInput").value = read.name || $("nameInput").value;
       drop.classList.add("ready");
       status.className = "drop-status ok";
@@ -280,9 +282,9 @@
     try {
       if (mode === "signin" || key !== Session.key) { btn.textContent = "Checking your key…"; await checkKey(key); }
       btn.textContent = "Saving…";
-      const { items, read } = picked;
+      const { items, read, dir } = picked;
       const name = $("nameInput").value.trim() || read.name || "My project";
-      const project = await DeckStore.save(name, items);                      // for Screen Map and Design Critic
+      const project = await DeckStore.save(name, items, dir);                    // for Screen Map and Design Critic
       await Session.save(key, { name, language: mainLanguage(read.files), files: read.files.length, lines: read.lines }, read.files);  // for Code Check
       showDeck(project);
     } catch (ex) {
@@ -293,15 +295,83 @@
     }
   }
 
-  $("pickFolder").onclick = () => $("folderInput").click();
+  // the folder itself where the browser allows it, so Review Deck can read it again when your code changes
+  async function chooseDir() {
+    try { return await showDirectoryPicker({ id: "review-deck", mode: "read" }); }
+    catch (e) { if (e.name === "AbortError") return null; throw e; }
+  }
+
+  $("pickFolder").onclick = async () => {
+    if (!DeckStore.canLink) return $("folderInput").click();
+    const dir = await chooseDir().catch(() => null);
+    if (dir) takeFolder(await DeckStore.readDir(dir), dir);
+  };
   $("folderInput").onchange = (e) => { if (e.target.files.length) takeFolder(filesFromInput(e.target.files)); e.target.value = ""; };
   const drop = $("setupDrop");
   drop.ondragover = (e) => { e.preventDefault(); drop.classList.add("over"); };
   drop.ondragleave = () => drop.classList.remove("over");
-  drop.ondrop = async (e) => { e.preventDefault(); drop.classList.remove("over"); takeFolder(await filesFromDrop(e.dataTransfer)); };
+  drop.ondrop = async (e) => {
+    e.preventDefault();
+    drop.classList.remove("over");
+    const item = e.dataTransfer.items[0];
+    const handle = DeckStore.canLink && item && item.getAsFileSystemHandle ? item.getAsFileSystemHandle().catch(() => null) : null;  // only during the drop
+    const items = await filesFromDrop(e.dataTransfer);
+    const dir = await handle;
+    takeFolder(items, dir && dir.kind === "directory" ? dir : null);
+  };
   $("setupForm").onsubmit = submit;
   $("newCode").onclick = () => showSetup("newcode");
   $("cancelSetup").onclick = () => start();
+
+  // ---------------------------------------------------------------- keeping the code up to date
+  // The linked folder is read again whenever Review Deck opens or comes back into view, and every
+  // 30 seconds while it's showing. Anything added, edited or removed goes to all three tools.
+  // Quiz progress stays: Code Check keeps its rounds, only the code underneath changes.
+
+  let syncing = false;
+
+  async function applyCode(items, dir) {
+    const read = await readProject(items);
+    if (!read.files.length || !allChunks(read.files).length) return;
+    const old = await DeckStore.project();
+    const project = await DeckStore.save(old.name, items, dir);
+    await Session.save(Session.key, { ...Session.project, name: old.name, language: mainLanguage(read.files), files: read.files.length, lines: read.lines }, read.files);
+    showDeck(project);
+  }
+
+  function syncButton(state) {
+    const btn = $("syncBtn");
+    btn.hidden = !DeckStore.canLink || state === "same" || state === "changed";
+    btn.textContent = state === "ask" ? "Turn on auto-update" : "Auto-update code";
+    btn.title = state === "ask"
+      ? "Let Review Deck read your project folder again - choose \"Allow on every visit\" so it never asks again"
+      : "Pick your project folder once - new code then shows up in all three tools on its own";
+  }
+
+  async function syncCode(ask = false) {
+    if (syncing || $("deck").hidden || !DeckStore.canLink) return;
+    syncing = true;
+    try {
+      const r = await DeckStore.rescan(ask);
+      syncButton(r.state);
+      if (r.state === "changed") await applyCode(r.items, r.dir);
+    } catch (e) {
+      console.warn("Review Deck: couldn't read your folder", e);
+    } finally {
+      syncing = false;
+    }
+  }
+
+  $("syncBtn").onclick = async () => {
+    if ($("syncBtn").textContent === "Turn on auto-update") return syncCode(true);
+    const dir = await chooseDir().catch(() => null);  // older sign-in without a linked folder: link it now
+    if (!dir) return;
+    syncing = true;
+    try { await applyCode(await DeckStore.readDir(dir), dir); syncButton("same"); }
+    finally { syncing = false; }
+  };
+
+  setInterval(() => { if (!document.hidden) syncCode(); }, 30000);
 
   // ---------------------------------------------------------------- start
 
@@ -311,6 +381,7 @@
     if (!signedIn) return showSetup("signin");
     DeckStore.keepForever();
     showDeck(project);
+    syncCode();
   }
 
   // coming back from a tool shows fresh numbers

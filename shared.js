@@ -60,12 +60,36 @@ const DeckStore = (() => {
     return BINARY.has(ext) && size <= MAX_BINARY;
   }
 
+  // path + size + last change of every file we'd keep: differs as soon as a file is added, edited or removed
+  function stampOf(items) {
+    let h = 2166136261;
+    const lines = items.filter(({ path, file }) => wanted(path, file.size)).map(({ path, file }) => `${path}|${file.size}|${file.lastModified}`).sort();
+    const text = lines.join("\n");
+    for (let i = 0; i < text.length; i++) h = Math.imul(h ^ text.charCodeAt(i), 16777619);
+    return `${lines.length}-${(h >>> 0).toString(36)}`;
+  }
+
+  // every file under a linked folder, as [{path, file}] with paths like a folder pick ("Project/app/...")
+  async function walk(dir, prefix = dir.name + "/", out = []) {
+    for await (const entry of dir.values()) {
+      if (entry.kind === "directory") {
+        if (!SKIP.has(entry.name) && !entry.name.startsWith(".")) await walk(entry, `${prefix}${entry.name}/`, out);
+      } else {
+        out.push({ path: prefix + entry.name, file: await entry.getFile() });
+      }
+    }
+    return out;
+  }
+
   return {
     HOME,
     keepForever,
+    canLink: typeof window.showDirectoryPicker === "function",
+    readDir: (dir) => walk(dir),
 
     // [{path, file}] from a folder pick or drop -> saved for every tool. Returns the saved project info.
-    async save(name, items) {
+    // With the folder itself (a FileSystemDirectoryHandle) Review Deck can re-read it later on its own.
+    async save(name, items, dir) {
       const keep = [];
       let total = 0;
       for (const { path, file } of items.slice().sort((a, b) => a.path.localeCompare(b.path))) {
@@ -75,10 +99,23 @@ const DeckStore = (() => {
         keep.push({ path, file: new File([await file.arrayBuffer()], path.split("/").pop(), { type: file.type }) });
       }
       if (!keep.length) throw new Error("No code found in that folder. Pick the folder that contains your project.");
-      const project = { name, files: keep.length, bytes: total, savedAt: Date.now() };
-      await put([["items", keep], ["project", project]]);
+      const project = { name, files: keep.length, bytes: total, savedAt: Date.now(), stamp: stampOf(items), linked: !!dir };
+      await put([["items", keep], ["project", project], ["dir", dir || null]]);  // a plain pick forgets an older linked folder
       keepForever();
       return project;
+    },
+
+    // The linked folder, read again. -> { state: "none" | "ask" | "same" | "changed", items, dir }
+    // "ask": the browser wants a click before reading it again (pass ask: true from a click).
+    async rescan(ask = false) {
+      const dir = await get("dir").catch(() => null);
+      const project = await get("project").catch(() => null);
+      if (!dir || !project) return { state: "none" };
+      let perm = await dir.queryPermission({ mode: "read" });
+      if (perm !== "granted" && ask) perm = await dir.requestPermission({ mode: "read" });
+      if (perm !== "granted") return { state: "ask", dir };
+      const items = await walk(dir);
+      return { state: stampOf(items) === project.stamp ? "same" : "changed", items, dir };
     },
 
     async project() { return (await get("project").catch(() => null)) || null; },
