@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Review Deck</title>
+  <meta name="description" content="Code Check, Screen Map and Design Critic in one place: how well you know your code, how your app fits together, and how good its design is.">
+  <meta name="theme-color" content="#f4f3ef">
+  <link rel="icon" href="icons/logo.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css?v=1">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <img src="icons/logo.svg" alt="" class="brand-logo">
+      <div>
+        <h1>Review Deck</h1>
+        <p class="brand-sub">Your code, reviewed three ways</p>
+      </div>
+    </div>
+    <button class="pill-btn" id="installBtn" hidden>Install app</button>
+  </header>
+
+  <main>
+    <section class="intro">
+      <p class="kicker" id="kicker">Review Deck</p>
+      <h2 id="headline">Pick a tool.</h2>
+      <p class="lead" id="lead">How well you know your code, how your app fits together, and how good its design really is.</p>
+    </section>
+
+    <section class="deck" id="deck">
+      <a class="card" id="card-code-check" href="../code-check/" data-site="code-check">
+        <div class="card-head">
+          <img src="../code-check/icons/logo.svg" alt="" class="site-logo">
+          <div><h3>Code Check</h3><p>Quiz yourself on your own code</p></div>
+        </div>
+        <div class="stats" id="stats-code-check"><div class="skeleton"></div></div>
+        <span class="open">Open Code Check <i>→</i></span>
+      </a>
+
+      <a class="card" id="card-screen-map" href="../screen-map/" data-site="screen-map">
+        <div class="card-head">
+          <img src="../screen-map/icons/logo.svg" alt="" class="site-logo">
+          <div><h3>Screen Map</h3><p>Your Android app as a flow chart</p></div>
+        </div>
+        <div class="stats" id="stats-screen-map"><div class="skeleton"></div></div>
+        <span class="open">Open Screen Map <i>→</i></span>
+      </a>
+
+      <a class="card" id="card-design-critic" href="../design-critic/" data-site="design-critic">
+        <div class="card-head">
+          <img src="../design-critic/icons/logo.svg" alt="" class="site-logo">
+          <div><h3>Design Critic</h3><p>A design review that doesn't go easy on you</p></div>
+        </div>
+        <div class="stats" id="stats-design-critic"><div class="skeleton"></div></div>
+        <span class="open">Open Design Critic <i>→</i></span>
+      </a>
+    </section>
+
+    <section class="import" id="importBox">
+      <div>
+        <h4>Bring over your desktop Code Check progress</h4>
+        <p id="importText">Pick the <code>code-check-progress.json</code> file exported from the Morning Code Check desktop app. Your rounds, answers, scores, code and Gemini key move into Code Check here. Nothing is uploaded; it stays in this browser.</p>
+      </div>
+      <label class="pill-btn dark" id="importLabel">
+        <input type="file" id="importFile" accept=".json,application/json" hidden>
+        Import progress file
+      </label>
+    </section>
+
+    <p class="foot">Everything stays in this browser. Each tool keeps its own data; Review Deck only reads it to show the numbers above.
+      <button class="link-btn" id="importAgain" hidden>Import desktop Code Check progress</button></p>
+  </main>
+
+  <script src="../code-check/js/chunks.js?v=1"></script>
+  <script src="../code-check/js/quiz.js?v=1"></script>
+  <script src="app.js?v=1"></script>
+</body>
+</html>
