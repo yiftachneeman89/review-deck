@@ -12,7 +12,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=1">
+  <link rel="stylesheet" href="style.css?v=2">
 </head>
 <body>
   <header class="topbar">
@@ -64,8 +64,8 @@
 
     <section class="import" id="importBox">
       <div>
-        <h4>Bring over your desktop Code Check progress</h4>
-        <p id="importText">Pick the <code>code-check-progress.json</code> file exported from the Morning Code Check desktop app. Your rounds, answers, scores, code and Gemini key move into Code Check here. Nothing is uploaded; it stays in this browser.</p>
+        <h4>Set up Code Check once</h4>
+        <p id="importText">Pick a <code>code-check-progress.json</code> setup file - from the desktop app, or downloaded from Review Deck in another browser. Your Gemini key, code and progress move into Code Check here and it won't ask again. Nothing is uploaded; it stays in this browser.</p>
       </div>
       <label class="pill-btn dark" id="importLabel">
         <input type="file" id="importFile" accept=".json,application/json" hidden>
@@ -74,11 +74,12 @@
     </section>
 
     <p class="foot">Everything stays in this browser. Each tool keeps its own data; Review Deck only reads it to show the numbers above.
-      <button class="link-btn" id="importAgain" hidden>Import desktop Code Check progress</button></p>
+      <button class="link-btn" id="importAgain" hidden>Import a Code Check setup file</button>
+      <button class="link-btn" id="exportSetup" hidden>Download Code Check setup (to use it in another browser)</button></p>
   </main>
 
-  <script src="../code-check/js/chunks.js?v=1"></script>
-  <script src="../code-check/js/quiz.js?v=1"></script>
-  <script src="app.js?v=1"></script>
+  <script src="../code-check/js/chunks.js?v=2"></script>
+  <script src="../code-check/js/quiz.js?v=2"></script>
+  <script src="app.js?v=2"></script>
 </body>
 </html>

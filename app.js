@@ -43,6 +43,8 @@
     }
     $("importBox").hidden = importOpen ? false : true;
     $("importAgain").hidden = !$("importBox").hidden;
+    $("exportSetup").hidden = false;
+    keepForever();
     const m = Quiz.mastery();
     const st = dailyStatus();
     const hist = Quiz.history();
@@ -177,9 +179,26 @@
     card.addEventListener("click", () => { try { sessionStorage.setItem("rd.from", "1"); } catch {} });
   }
   $("importAgain").onclick = () => { importOpen = true; $("importBox").hidden = false; $("importAgain").hidden = true; $("importBox").scrollIntoView({ behavior: "smooth" }); };
+  $("exportSetup").onclick = exportSetup;
   $("importFile").addEventListener("change", (e) => { if (e.target.files[0]) importProgress(e.target.files[0]); e.target.value = ""; });
 
-  window.ReviewDeck = { importProgress, refresh };
+  // everything Code Check needs, in the same format as the desktop export - import it in another browser once
+  async function exportSetup() {
+    if (!(await Session.load().catch(() => false))) return;
+    const data = {
+      format: "review-deck/code-check-import@1",
+      key: Session.key, project: Session.project, files: Session.files,
+      rounds: allRounds(), used: store.json("used", []),
+    };
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([JSON.stringify(data)], { type: "application/json" }));
+    a.download = "code-check-progress.json";
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    alert("Saved code-check-progress.json. Open Review Deck in the other browser and import it. The file holds your Gemini key, so delete it afterwards.");
+  }
+
+  window.ReviewDeck = { importProgress, refresh, exportSetup };
 
   // installable app
   let installEvent = null;
