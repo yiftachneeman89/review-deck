@@ -95,23 +95,71 @@ usable: false when the lines are boilerplate with nothing worth finding.`;
 
   // ---------------------------------------------------------------- checking
 
+  // The same code is often copied into several classes (or twice in one). Every place where the
+  // answer's lines appear again - ignoring spacing and comments - counts as a right answer too.
+  const norm = (l) => l.replace(/\/\/.*$/, "").replace(/\s+/g, " ").trim();
+  const meaningful = (l) => l.length >= 4 && !/^[{}()[\];,.\s]*$/.test(l) && !/^(\} ?)?(else|try|finally|do)( ?\{)?$|^(break|continue|return|super\.\w+\(.*\));?$|^@Override$/.test(l);
+
+  function places(ch) {
+    if (ch.places) return ch.places;
+    const own = Session.files.find((f) => f.path === ch.file);
+    const want = own ? own.code.split("\n").slice(ch.start - 1, ch.end).map(norm).filter(meaningful) : [];
+    const out = [{ file: ch.file, start: ch.start, end: ch.end }];
+    if (want.length < 2) return (ch.places = out);
+    const wanted = new Set(want);
+    const span = Math.ceil((ch.end - ch.start + 1) * 1.25) + 2;  // room for an extra line or two in the copy
+    for (const f of Session.files.filter((x) => codeFile(x.path))) {
+      const lines = f.code.split("\n").map(norm);
+      for (let i = 0; i < lines.length; i++) {
+        if (!wanted.has(lines[i])) continue;
+        const left = [...want];  // each wanted line can be matched once
+        let first = 0, last = 0, hits = 0;
+        for (let j = i; j < Math.min(lines.length, i + span); j++) {
+          const k = left.indexOf(lines[j]);
+          if (k < 0) continue;
+          left.splice(k, 1);
+          hits++;
+          first ||= j + 1;
+          last = j + 1;
+        }
+        if (hits / want.length < 0.8) continue;
+        // and the copy must be mostly those lines - not a longer, different block that happens to contain them
+        if (hits / lines.slice(first - 1, last).filter(meaningful).length < 0.8) continue;
+        const p = { file: f.path, start: first, end: last };
+        const same = out.find((o) => o.file === p.file && o.start <= p.end && p.start <= o.end);
+        if (!same) out.push(p);
+        i = last - 1;  // carry on after this copy
+      }
+    }
+    return (ch.places = out);
+  }
+
+  const RANK = { "found": 0, "close": 1, "wrong-lines": 2 };
+  function judge(sel, p) {
+    const overlap = Math.max(0, Math.min(sel.end, p.end) - Math.max(sel.start, p.start) + 1);
+    const recall = overlap / (p.end - p.start + 1), precision = overlap / (sel.end - sel.start + 1);
+    const gap = overlap ? 0 : Math.min(Math.abs(sel.start - p.end), Math.abs(p.start - sel.end));
+    return recall >= 0.5 && precision >= 0.35 ? "found" : overlap || gap <= 8 ? "close" : "wrong-lines";
+  }
+
   function check(gaveUp = false) {
     const { ch, cls, sel } = st;
     const s = stats();
-    let verdict;
+    const all = places(ch);
+    let verdict, match = all[0];
     if (gaveUp) verdict = "gave-up";
-    else if (cls !== ch.file) verdict = "wrong-class";
+    else if (!all.some((p) => p.file === cls)) verdict = "wrong-class";
     else {
-      const overlap = Math.max(0, Math.min(sel.end, ch.end) - Math.max(sel.start, ch.start) + 1);
-      const recall = overlap / (ch.end - ch.start + 1), precision = overlap / (sel.end - sel.start + 1);
-      const gap = overlap ? 0 : Math.min(Math.abs(sel.start - ch.end), Math.abs(ch.start - sel.end));
-      verdict = recall >= 0.5 && precision >= 0.35 ? "found" : overlap || gap <= 8 ? "close" : "wrong-lines";
+      // the copy in your class that your lines come closest to
+      const tries = all.filter((p) => p.file === cls).map((p) => ({ p, v: judge(sel, p) }));
+      tries.sort((a, b) => RANK[a.v] - RANK[b.v]);
+      ({ p: match, v: verdict } = tries[0]);
     }
     s.played++;
     if (verdict === "found") { s.found++; s.streak++; s.best = Math.max(s.best, s.streak); } else s.streak = 0;
     s.seen.push(ch.id);
     saveStats(s);
-    st = { ...st, phase: "result", verdict, picked: cls };
+    st = { ...st, phase: "result", verdict, picked: cls, match };
     render();
   }
 
@@ -200,22 +248,31 @@ usable: false when the lines are boilerplate with nothing worth finding.`;
 
     // result
     const [tone, title, sub] = VERDICT[st.verdict];
-    const answerName = ch.file.split("/").pop().replace(/\.\w+$/, "");
-    const pickedName = (st.picked || "").split("/").pop().replace(/\.\w+$/, "");
-    const where = st.verdict === "wrong-class" ? `It's in <b>${esc(answerName)}</b>, not ${esc(pickedName)}.` : st.verdict === "gave-up" ? `It's in <b>${esc(answerName)}</b>.` : esc(sub);
-    const bands = [[ch.start, ch.end, "ans"]];
-    if (st.sel && st.picked === ch.file && st.verdict !== "found") bands.push([st.sel.start, st.sel.end, "sel"]);
+    const m = st.match || ch;  // the copy you were judged against (the original unless you picked another copy)
+    const name = (path) => (path || "").split("/").pop().replace(/\.\w+$/, "");
+    const all = places(ch);
+    const classesWithIt = [...new Set(all.map((p) => p.file))];
+    const inClasses = classesWithIt.map((f) => `<b>${esc(name(f))}</b>`);
+    const list = inClasses.length > 1 ? `${inClasses.slice(0, -1).join(", ")} and ${inClasses.at(-1)}` : inClasses[0];
+    const where = st.verdict === "wrong-class" ? `It's in ${list}, not ${esc(name(st.picked))}.`
+      : st.verdict === "gave-up" ? `It's in ${list}.` : esc(sub);
+    // other places the same code lives, besides the one shown
+    const others = all.filter((p) => p !== m);
+    const copies = others.length ? `<p class="fg-copies">The same code is also in ${others.map((p) => `<b>${esc(name(p.file))}</b> (lines ${p.start}–${p.end})`).join(", ")}${st.verdict === "found" || st.verdict === "close" ? " - any of them counts." : "."}</p>` : "";
+    const bands = [[m.start, m.end, "ans"]];
+    if (st.sel && st.picked === m.file && st.verdict !== "found") bands.push([st.sel.start, st.sel.end, "sel"]);
     body.innerHTML = `${task}
       <div class="fg-verdict tone-${tone}"><b>${title}</b><span>${where}</span></div>
       <p class="fg-explain">${esc(ch.explain)}</p>
-      ${codeView(ch.file, bands, `lines ${ch.start}–${ch.end}`)}
+      ${copies}
+      ${codeView(m.file, bands, `lines ${m.start}–${m.end}`)}
       <div class="fg-bar">
         <span class="fg-key"><i class="ans"></i>The answer${bands.length > 1 ? `<i class="sel"></i>Your lines` : ""}</span>
         <button class="pill-btn" data-fg="explain">Explain this class</button>
-        <a class="pill-btn" href="/code-check/?file=${encodeURIComponent(ch.file)}">Quiz me on this class</a>
+        <a class="pill-btn" href="/code-check/?file=${encodeURIComponent(m.file)}">Quiz me on this class</a>
         <button class="pill-btn dark" data-fg="start">Next one</button>
       </div>`;
-    scrollTo(ch.start);
+    scrollTo(m.start);
   }
 
   function scrollTo(line) {
@@ -264,7 +321,7 @@ usable: false when the lines are boilerplate with nothing worth finding.`;
       else if (act === "hint") { st.hint = true; render(); }
       else if (act === "check" && st.sel) check();
       else if (act === "giveup") check(true);
-      else if (act === "explain") Explain.ask("class", st.ch.file);
+      else if (act === "explain") Explain.ask("class", (st.match || st.ch).file);
     });
     body.addEventListener("change", (e) => {
       if (e.target.id !== "fgClass") return;

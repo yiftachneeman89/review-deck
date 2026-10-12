@@ -403,3 +403,4 @@ button.ev:hover { border-color: var(--ink); color: var(--ink); }
 }
 .ex-meta .x-btn.sm { color: var(--ink-2); border-color: var(--line-2); }
 .ex-meta .stale { color: var(--orange); font-weight: 600; }
+.fg-copies { margin: -6px 0 0; font-size: 13.5px; color: var(--ink-2); padding: 8px 12px; border-radius: 10px; background: var(--sunk); border: 1px solid var(--line); }

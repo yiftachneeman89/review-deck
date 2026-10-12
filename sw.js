@@ -1,7 +1,7 @@
 // Review Deck service worker: makes the app installable and lets the deck open without a connection.
 // Network first (so updates show up right away), cached copy when offline.
-const CACHE = "review-deck-v12";
-const SHELL = ["./", "index.html", "style.css?v=12", "home.css?v=12", "app.js?v=12", "insights.js?v=12", "features.js?v=12", "search.js?v=12", "findgame.js?v=12", "explain.js?v=12", "shared.js?v=5", "manifest.webmanifest", "icons/logo.svg", "icons/icon-192.png"];
+const CACHE = "review-deck-v13";
+const SHELL = ["./", "index.html", "style.css?v=13", "home.css?v=13", "app.js?v=13", "insights.js?v=13", "features.js?v=13", "search.js?v=13", "findgame.js?v=13", "explain.js?v=13", "shared.js?v=5", "manifest.webmanifest", "icons/logo.svg", "icons/icon-192.png"];
 
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
