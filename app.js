@@ -367,7 +367,44 @@
     return `<div class="feat" id="feat-${slug(f.name)}"><b>${esc(f.name)}</b><p>${esc(list === "recommended" ? f.why : f.detail)}</p>${extra}${evidence(f)}</div>`;
   }
 
+  // features you add yourself: Gemini checks the code for them and puts them in the column they belong to
+  const VERDICT_COL = { built: "built", in_progress: "in_progress", missing: "recommended" };
+  const COL_LABEL = { built: "Built", in_progress: "In progress", recommended: "Recommended" };
+  const adding = {};    // column -> { text, busy, error } while its "Add a feature" box is open
+
+  function mineCard(m) {
+    const r = m.result, col = VERDICT_COL[r.status];
+    const moved = m.column !== col
+      ? `<p class="moved">You added this under ${COL_LABEL[m.column]} - ${r.status === "built" ? "it's already built" : r.status === "in_progress" ? "it's only partly there" : "it isn't in your code yet"}.</p>` : "";
+    const asked = m.asked.trim().toLowerCase() !== r.name.trim().toLowerCase() ? `<p class="asked">“${esc(m.asked)}”</p>` : "";
+    const tone = r.percent >= 90 ? "var(--green)" : r.percent >= 30 ? "var(--amber)" : "var(--red)";
+    return `<div class="feat mine" id="feat-${slug(r.name)}">
+      <div class="mine-top"><span class="mine-tag">Yours</span><span class="mine-pct">${r.percent}% there</span></div>
+      <b>${esc(r.name)}</b>${asked}
+      <div class="pbar" role="img" aria-label="${r.percent}% built"><i style="width:${r.percent}%;background:${tone}"></i></div>
+      <p>${esc(r.detail)}</p>
+      ${r.missing && r.status !== "built" ? `<p class="missing"><span>Still missing</span>${esc(r.missing)}</p>` : ""}
+      ${moved}${evidence(r)}
+      <div class="mine-actions"><button class="link-btn" data-recheck="${m.id}">Re-check</button><button class="link-btn" data-remove="${m.id}">Remove</button><small>checked ${ago(m.at)}${current && m.savedAt < current.savedAt ? " · code changed since" : ""}</small></div>
+    </div>`;
+  }
+
+  function addBox(key) {
+    const a = adding[key];
+    if (!a) return `<button class="add-feat" data-add="${key}"><span>+</span> Add a feature</button>`;
+    return `<form class="add-form" data-form="${key}">
+      <label for="add-${key}">Describe a feature in your own words</label>
+      <textarea id="add-${key}" rows="3" placeholder="${key === "built" ? "e.g. Users can reset their password" : key === "in_progress" ? "e.g. Saving lessons to watch offline" : "e.g. A metronome on the practice screen"}" ${a.busy ? "disabled" : ""}>${esc(a.text)}</textarea>
+      ${a.error ? `<p class="setup-error">${esc(a.error)}</p>` : ""}
+      ${a.busy ? busy("Gemini is looking for it in your code…") : `<div class="add-actions"><button type="button" class="pill-btn" data-cancel="${key}">Cancel</button><button type="submit" class="pill-btn dark">Check my code</button></div>`}
+    </form>`;
+  }
+
+  let featPending = false;
   function renderFeatures() {
+    // don't wipe a feature you're typing; draw again when you leave the box
+    if (document.activeElement && document.activeElement.closest("#featBody textarea")) { featPending = true; return; }
+    featPending = false;
     const saved = Features.saved();
     const body = $("featBody"), btn = $("featRun");
     btn.disabled = Features.running();
@@ -378,24 +415,46 @@
       return;
     }
     const error = featError ? `<p class="setup-error">Couldn't check your code: ${esc(featError)}</p>` : "";
-    if (!saved) {
+    const r = saved ? saved.result : {};
+    const mine = Features.mine();
+    if (saved) {
+      $("featSummary").textContent = r.summary;
+      const stale = Features.stale(current);
+      $("featMeta").innerHTML = `${stale ? `<span class="stale">Your code changed since</span> · ` : ""}checked ${ago(saved.at)} · ${plural(saved.files, "file")} read`;
+    } else {
       $("featMeta").textContent = "";
-      body.innerHTML = error || `<p class="note">Gemini reads your whole project once and lists your features here.</p>`;
-      return;
     }
-    const r = saved.result;
-    $("featSummary").textContent = r.summary;
-    const stale = Features.stale(current);
-    $("featMeta").innerHTML = `${stale ? `<span class="stale">Your code changed since</span> · ` : ""}checked ${ago(saved.at)} · ${plural(saved.files, "file")} read`;
-    body.innerHTML = `${error}<div class="feat-cols">${FEAT_COLS.map(([key, label, sub]) => {
+    const intro = saved ? "" : `<p class="note feat-intro">Gemini reads your whole project once and lists your features here. You can also add your own below.</p>`;
+    body.innerHTML = `${error}${intro}<div class="feat-cols">${FEAT_COLS.map(([key, label, sub]) => {
       const items = r[key] || [];
+      const own = mine.filter((m) => VERDICT_COL[m.result.status] === key);
       const limit = featOpen[key] ? items.length : 5;
       return `<div class="feat-col col-${key}">
-        <div class="fc-head"><span class="fc-dot"></span><h3>${label}</h3><b>${items.length}</b><small>${sub}</small></div>
-        ${items.length ? items.slice(0, limit).map((f) => featureCard(key, f)).join("") : `<p class="note">Nothing here.</p>`}
+        <div class="fc-head"><span class="fc-dot"></span><h3>${label}</h3><b>${items.length + own.length}</b><small>${sub}</small></div>
+        ${addBox(key)}
+        ${own.map(mineCard).join("")}
+        ${items.slice(0, limit).map((f) => featureCard(key, f)).join("")}
+        ${!items.length && !own.length ? `<p class="note">Nothing here.</p>` : ""}
         ${items.length > limit ? `<button class="link-btn" data-more="${key}">Show all ${items.length}</button>` : ""}
       </div>`;
     }).join("")}</div>`;
+    const open = Object.keys(adding).find((k) => !adding[k].busy && adding[k].focus);
+    if (open) { const t = $(`add-${open}`); t.focus(); t.setSelectionRange(t.value.length, t.value.length); adding[open].focus = false; }
+  }
+
+  async function checkMine(key, text, id = null) {
+    adding[key] = { text, busy: true };
+    renderFeatures();
+    try {
+      const entry = await Features.checkOne(text, key, current, id);
+      delete adding[key];
+      renderFeatures();
+      showFeature(entry.result.name);
+      renderToday(Insights.snapshot());
+    } catch (e) {
+      adding[key] = { text, error: `Couldn't check it: ${e.message || e}` };
+      renderFeatures();
+    }
   }
 
   // reads the code when there's no list yet, or when the code changed and the list is over 6 hours old
@@ -415,12 +474,43 @@
   $("featBody").addEventListener("click", (e) => {
     const more = e.target.closest("[data-more]");
     if (more) { featOpen[more.dataset.more] = true; renderFeatures(); return; }
+    const add = e.target.closest("[data-add]");
+    if (add) { adding[add.dataset.add] = { text: "", focus: true }; renderFeatures(); return; }
+    const cancel = e.target.closest("[data-cancel]");
+    if (cancel) { delete adding[cancel.dataset.cancel]; renderFeatures(); return; }
+    const remove = e.target.closest("[data-remove]");
+    if (remove) { Features.removeMine(remove.dataset.remove); renderFeatures(); return; }
+    const again = e.target.closest("[data-recheck]");
+    if (again) {
+      const m = Features.mine().find((x) => x.id === again.dataset.recheck);
+      if (m) checkMine(VERDICT_COL[m.result.status], m.asked, m.id);
+      return;
+    }
     const sc = e.target.closest("[data-screen]");
     if (sc) {
       const n = (readJson("sm.summary")?.graph?.nodes || []).find((x) => x.id === sc.dataset.screen);
       if (n) openScreenSheet(n);
     }
   });
+
+  $("featBody").addEventListener("input", (e) => {
+    const form = e.target.closest("[data-form]");
+    if (form) adding[form.dataset.form].text = e.target.value;
+  });
+  $("featBody").addEventListener("submit", (e) => {
+    const form = e.target.closest("[data-form]");
+    if (!form) return;
+    e.preventDefault();
+    const key = form.dataset.form, text = adding[key].text.trim();
+    if (text.length < 4) { adding[key].error = "Write a few words about the feature."; adding[key].focus = true; document.activeElement.blur(); renderFeatures(); return; }
+    document.activeElement.blur();
+    checkMine(key, text);
+  });
+  $("featBody").addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && e.target.closest("[data-form] textarea")) e.target.form.requestSubmit();
+    if (e.key === "Escape" && e.target.closest("[data-form]")) { delete adding[e.target.closest("[data-form]").dataset.form]; document.activeElement.blur(); renderFeatures(); }
+  });
+  $("featBody").addEventListener("focusout", () => setTimeout(() => { if (featPending) renderFeatures(); }, 0));
 
   function showFeature(name) {
     for (const k of Object.keys(featOpen)) delete featOpen[k];
@@ -857,6 +947,7 @@
   }
 
   Search.init({ screen: openScreenSheet, feature: showFeature });
+  FindGame.init();
 
   // coming back from a tool shows fresh numbers
   window.addEventListener("pageshow", (e) => { if (e.persisted && !$("deck").hidden) start(); });

@@ -36,6 +36,9 @@ const Search = (() => {
         out.push({ type: "topic", title: r.title, sub: `${r.chunk.file.split("/").pop()} · ${r.date}${avg}`, words: `${r.title} ${r.chunk.owner} ${r.chunk.file} ${r.questions.map((q) => q.question).join(" ")}`, href: `/code-check/?file=${encodeURIComponent(r.chunk.file)}` });
       }
     } catch {}
+    for (const m of json("rd.features.mine") || []) {
+      out.push({ type: "feature", title: m.result.name, sub: `Yours · ${m.result.percent}% there`, words: `${m.result.name} ${m.asked} ${m.result.detail}`, run: () => onFeature(m.result.name) });
+    }
     const feats = json("rd.features")?.result;
     for (const [list, label] of [["built", "Built"], ["in_progress", "In progress"], ["recommended", "Recommended"]]) {
       for (const f of feats?.[list] || []) out.push({ type: "feature", title: f.name, sub: label, words: `${f.name} ${f.detail || f.why || ""} ${(f.screens || []).join(" ")}`, run: () => onFeature(f.name) });

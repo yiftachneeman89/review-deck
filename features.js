@@ -118,10 +118,52 @@ For every item name the real screens (use the screen names given) and the most r
     required: ["summary", "built", "in_progress", "recommended"],
   };
 
+  // ---------------------------------------------------------------- one feature you describe
+
+  const ONE_SYSTEM = `You read an app's whole source code. The developer describes one feature in their own words.
+Decide whether the app has it, judged only from the code:
+- built: a user can do it end to end today.
+- in_progress: some of it exists (screens, layouts, data, half-wired code) but a user can't fully do it yet.
+- missing: nothing meaningful exists for it yet.
+percent: how much of the feature exists (built = 90-100, missing = 0-10). Be honest and specific: name what exists (real screens and exact file paths) and exactly what is missing. If the description is vague, judge the most likely meaning and say which one you used. Plain, friendly English.`;
+
+  const ONE_SCHEMA = {
+    type: "object",
+    properties: {
+      name: { type: "string", description: "a short name for the feature (2-5 words)" },
+      status: { type: "string", enum: ["built", "in_progress", "missing"] },
+      percent: { type: "integer" },
+      detail: { type: "string", description: "what already exists, or why nothing does" },
+      missing: { type: "string", description: "what is still missing; empty when built" },
+      screens: { type: "array", items: { type: "string" } },
+      files: { type: "array", items: { type: "string" } },
+    },
+    required: ["name", "status", "percent", "detail", "missing", "screens", "files"],
+  };
+
+  const MINE = "rd.features.mine";  // [{ id, asked, column, at, savedAt, result }] - your own, kept across re-checks
+  const readMine = () => { try { return JSON.parse(localStorage.getItem(MINE)) || []; } catch { return []; } };
+  const writeMine = (v) => { try { localStorage.setItem(MINE, JSON.stringify(v)); } catch {} };
+
+  async function checkOne(text, column, project, id = null) {
+    const sm = (() => { try { return JSON.parse(localStorage.getItem("sm.summary")); } catch { return null; } })();
+    const { prompt } = buildPrompt(Session.project, Session.files, sm);
+    const result = await askGemini(Session.key, ONE_SYSTEM, `The feature to look for:\n"${text}"\n\n${prompt}`, ONE_SCHEMA);
+    result.percent = Math.max(0, Math.min(100, Math.round(result.percent)));
+    const entry = { id: id || `m${Date.now().toString(36)}`, asked: text, column, at: Date.now(), savedAt: project.savedAt, result };
+    const list = readMine().filter((m) => m.id !== entry.id);
+    list.unshift(entry);
+    writeMine(list);
+    return entry;
+  }
+
   let running = null;
 
   return {
     saved: read,
+    mine: readMine,
+    checkOne,
+    removeMine(id) { writeMine(readMine().filter((m) => m.id !== id)); },
 
     // the saved result is from older code
     stale(project) { const s = read(); return !!(s && project && s.savedAt < project.savedAt); },
