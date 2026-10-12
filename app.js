@@ -384,7 +384,7 @@
     </form>`;
   }
 
-  const cardActions = (key, extra = "") => `<div class="feat-actions-row">${extra}<button class="link-btn" data-edit="${esc(key)}">Edit</button><button class="link-btn danger" data-del="${esc(key)}">Remove</button></div>`;
+  const cardActions = (key, extra = "", name = "") => `<div class="feat-actions-row">${extra}${name ? `<button class="link-btn" data-explain="${esc(name)}">Explain</button>` : ""}<button class="link-btn" data-edit="${esc(key)}">Edit</button><button class="link-btn danger" data-del="${esc(key)}">Remove</button></div>`;
 
   function featureCard(list, f) {
     if (editing && editing.key === f.key) return editForm(list, f);
@@ -394,7 +394,7 @@
         ? `<div class="chips"><span class="chip effort-${f.effort}">${esc(f.effort)} effort</span><span class="chip">${esc(f.type)}</span></div>`
         : "";
     const edited = f.edited ? `<span class="edited-tag">Edited</span><button class="link-btn" data-reset="${esc(f.key)}" title="Back to Gemini's wording">Undo edits</button>` : "";
-    return `<div class="feat" id="feat-${slug(f.name)}"><b>${esc(f.name)}</b><p>${esc(f[textField(list)])}</p>${extra}${evidence(f)}${cardActions(f.key, edited)}</div>`;
+    return `<div class="feat" id="feat-${slug(f.name)}"><b>${esc(f.name)}</b><p>${esc(f[textField(list)])}</p>${extra}${evidence(f)}${cardActions(f.key, edited, list === "recommended" ? "" : f.name)}</div>`;
   }
 
   // features you add yourself: Gemini checks the code for them and puts them in the column they belong to
@@ -416,7 +416,7 @@
       <p>${esc(r.detail)}</p>
       ${r.missing && r.status !== "built" ? `<p class="missing"><span>Still missing</span>${esc(r.missing)}</p>` : ""}
       ${moved}${evidence(r)}
-      <div class="mine-actions"><button class="link-btn" data-recheck="${m.id}">Re-check</button><button class="link-btn" data-edit="mine:${m.id}">Edit</button><button class="link-btn danger" data-del="mine:${m.id}">Remove</button><small>checked ${ago(m.at)}${current && m.savedAt < current.savedAt ? " · code changed since" : ""}</small></div>
+      <div class="mine-actions">${r.status !== "missing" ? `<button class="link-btn" data-explain="${esc(r.name)}">Explain</button>` : ""}<button class="link-btn" data-recheck="${m.id}">Re-check</button><button class="link-btn" data-edit="mine:${m.id}">Edit</button><button class="link-btn danger" data-del="mine:${m.id}">Remove</button><small>checked ${ago(m.at)}${current && m.savedAt < current.savedAt ? " · code changed since" : ""}</small></div>
     </div>`;
   }
 
@@ -582,6 +582,8 @@
       if (m) checkMine(VERDICT_COL[m.result.status], m.asked, m.id);
       return;
     }
+    const ex = e.target.closest("[data-explain]");
+    if (ex) return Explain.ask("feature", ex.dataset.explain);
     const sc = e.target.closest("[data-screen]");
     if (sc) {
       const n = (readJson("sm.summary")?.graph?.nodes || []).find((x) => x.id === sc.dataset.screen);
@@ -881,6 +883,7 @@
       ? `${project.name} · kept up to date with your folder · last change ${ago(project.savedAt)}`
       : `${project.name} · code from ${ago(project.savedAt)}`;
     fillCards(project);
+    Explain.refresh();
   }
 
   async function takeFolder(items, dir = null) {
@@ -1045,8 +1048,9 @@
     runFeatures();
   }
 
-  Search.init({ screen: openScreenSheet, feature: showFeature });
+  Search.init({ screen: openScreenSheet, feature: showFeature, explain: Explain.ask });
   FindGame.init();
+  Explain.init({ evidence, screen: openScreenSheet });
 
   // coming back from a tool shows fresh numbers
   window.addEventListener("pageshow", (e) => { if (e.persisted && !$("deck").hidden) start(); });

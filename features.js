@@ -60,14 +60,16 @@ const Features = (() => {
     return out.slice(0, 80);
   }
 
-  function buildPrompt(project, files, sm) {
+  const numbered = (code) => code.split("\n").map((l, i) => `${i + 1}| ${l}`).join("\n");
+
+  function buildPrompt(project, files, sm, withLines = false) {
     const parts = [];
     const order = { manifest: 0, nav: 1, code: 2, strings: 3, layout: 4, build: 5, values: 6 };
     const sorted = files.filter((f) => kind(f.path) !== "values").sort((a, b) => order[kind(a.path)] - order[kind(b.path)] || a.path.localeCompare(b.path));
     let used = 0, skipped = 0;
     for (const f of sorted) {
       const k = kind(f.path);
-      const body = k === "layout" ? layoutDigest(f.code) : k === "strings" ? stringsDigest(f.code) : f.code;
+      const body = k === "layout" ? layoutDigest(f.code) : k === "strings" ? stringsDigest(f.code) : withLines && k === "code" ? numbered(f.code) : f.code;
       if (used + body.length > MAX_CHARS) { skipped++; continue; }
       used += body.length;
       parts.push(`=== ${f.path}${k === "layout" ? " (summary)" : ""}\n${body}`);
@@ -191,6 +193,8 @@ percent: how much of the feature exists (built = 90-100, missing = 0-10). Be hon
 
   return {
     view,
+    // the whole project as one prompt; withLines numbers each code line ("12| ...") so answers can point at lines
+    context: (withLines = false) => buildPrompt(Session.project, Session.files, (() => { try { return JSON.parse(localStorage.getItem("sm.summary")); } catch { return null; } })(), withLines),
     setEdit,
     saved: read,
     mine: readMine,

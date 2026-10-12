@@ -6,10 +6,11 @@ const Search = (() => {
   const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
   const json = (k) => { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } };
 
-  const GROUPS = { screen: "Screens", issue: "Design issues", file: "Code files", topic: "Quiz topics", feature: "Features" };
+  const GROUPS = { screen: "Screens", issue: "Design issues", file: "Code files", topic: "Quiz topics", feature: "Features", explain: "Ask Gemini" };
   const SEV = { blocker: "Blocker", major: "Major", minor: "Minor" };
   let onScreen = () => {};  // set by app.js: opens the screen panel
   let onFeature = () => {};
+  let onExplain = () => {};
 
   function index() {
     const out = [];
@@ -58,7 +59,11 @@ const Search = (() => {
     }
     hits.sort((a, b) => a.score - b.score || a.title.localeCompare(b.title));
     const per = {};
-    return hits.filter((h) => (per[h.type] = (per[h.type] || 0) + 1) <= 5);
+    const out = hits.filter((h) => (per[h.type] = (per[h.type] || 0) + 1) <= 5);
+    // always offer to explain what you typed: a class when it names one, otherwise a feature
+    const cls = Explain.isClass(q);
+    out.push({ type: "explain", title: `Explain “${q.trim()}”`, sub: cls ? "The class, step by step in your code" : "The feature, step by step in your code", words: "", score: 9, run: () => onExplain(cls ? "class" : "feature", cls || q.trim()) });
+    return out;
   }
 
   let results = [], active = 0;
@@ -93,6 +98,7 @@ const Search = (() => {
   function init(handlers) {
     onScreen = handlers.screen;
     onFeature = handlers.feature;
+    onExplain = handlers.explain;
     const input = $("searchInput");
     input.addEventListener("input", () => { active = 0; render(); });
     input.addEventListener("focus", render);

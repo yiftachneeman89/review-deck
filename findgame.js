@@ -211,6 +211,7 @@ usable: false when the lines are boilerplate with nothing worth finding.`;
       ${codeView(ch.file, bands, `lines ${ch.start}–${ch.end}`)}
       <div class="fg-bar">
         <span class="fg-key"><i class="ans"></i>The answer${bands.length > 1 ? `<i class="sel"></i>Your lines` : ""}</span>
+        <button class="pill-btn" data-fg="explain">Explain this class</button>
         <a class="pill-btn" href="/code-check/?file=${encodeURIComponent(ch.file)}">Quiz me on this class</a>
         <button class="pill-btn dark" data-fg="start">Next one</button>
       </div>`;
@@ -263,6 +264,7 @@ usable: false when the lines are boilerplate with nothing worth finding.`;
       else if (act === "hint") { st.hint = true; render(); }
       else if (act === "check" && st.sel) check();
       else if (act === "giveup") check(true);
+      else if (act === "explain") Explain.ask("class", st.ch.file);
     });
     body.addEventListener("change", (e) => {
       if (e.target.id !== "fgClass") return;

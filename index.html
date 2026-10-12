@@ -13,8 +13,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=11">
-  <link rel="stylesheet" href="home.css?v=11">
+  <link rel="stylesheet" href="style.css?v=12">
+  <link rel="stylesheet" href="home.css?v=12">
 </head>
 <body>
   <header class="topbar">
@@ -112,6 +112,17 @@
         <div class="trend-grid" id="trends"></div>
       </section>
 
+      <section class="explain" id="explain" aria-label="Explain">
+        <div class="section-head">
+          <div><h2>Explain</h2><p>Ask about any class or feature - Gemini walks you through it in your own code.</p></div>
+        </div>
+        <div class="find-card ex-box">
+          <form class="ex-form" id="exForm"></form>
+          <div class="ex-recent" id="exRecent"></div>
+          <div id="exResult"></div>
+        </div>
+      </section>
+
       <section class="find" id="find" aria-label="Find your code">
         <div class="section-head">
           <div><h2>Find your code</h2><p>A small game: you get something your app does - find the class, then highlight the lines that do it.</p></div>
@@ -167,11 +178,12 @@
   <script src="/code-check/js/chunks.js?v=4"></script>
   <script src="/code-check/js/ai.js?v=4"></script>
   <script src="/code-check/js/quiz.js?v=4"></script>
-  <script src="insights.js?v=11"></script>
-  <script src="features.js?v=11"></script>
-  <script src="search.js?v=11"></script>
+  <script src="insights.js?v=12"></script>
+  <script src="features.js?v=12"></script>
+  <script src="search.js?v=12"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
-  <script src="findgame.js?v=11"></script>
-  <script src="app.js?v=11"></script>
+  <script src="findgame.js?v=12"></script>
+  <script src="explain.js?v=12"></script>
+  <script src="app.js?v=12"></script>
 </body>
 </html>
