@@ -13,7 +13,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=6">
+  <link rel="stylesheet" href="style.css?v=9">
+  <link rel="stylesheet" href="home.css?v=9">
 </head>
 <body>
   <header class="topbar">
@@ -24,7 +25,14 @@
         <p class="brand-sub" id="projectLine">Your code, reviewed three ways</p>
       </div>
     </div>
+    <div class="search" id="searchBox" hidden>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      <input type="search" id="searchInput" placeholder="Search screens, files, issues, quiz topics…" autocomplete="off" spellcheck="false" aria-label="Search everything" aria-controls="searchResults">
+      <kbd>/</kbd>
+      <div class="search-results" id="searchResults" role="listbox" hidden></div>
+    </div>
     <div class="top-actions" id="topActions" hidden>
+      <button class="pill-btn" id="weekBtn" title="How your week went">Week</button>
       <div class="theme-switch" role="group" aria-label="Colour mode">
         <button type="button" data-theme-choice="light">White</button>
         <button type="button" data-theme-choice="dark">Black</button>
@@ -66,33 +74,94 @@
       </form>
     </section>
 
-    <section class="deck" id="deck" hidden>
-      <a class="card" href="/code-check/">
-        <img src="/code-check/icons/logo.svg" alt="" class="site-logo">
-        <div class="card-text"><h3>Code Check</h3><p id="info-code-check">Quiz yourself on your own code</p></div>
-        <div class="details" id="det-code-check"></div>
-        <span class="arrow">→</span>
-      </a>
-      <a class="card" href="/screen-map/">
-        <img src="/screen-map/icons/logo.svg" alt="" class="site-logo">
-        <div class="card-text"><h3>Screen Map</h3><p id="info-screen-map">Your Android app as a flow chart</p></div>
-        <div class="details" id="det-screen-map"></div>
-        <span class="arrow">→</span>
-      </a>
-      <a class="card" href="/design-critic/">
-        <img src="/design-critic/icons/logo.svg" alt="" class="site-logo">
-        <div class="card-text"><h3>Design Critic</h3><p id="info-design-critic">A design review that doesn't go easy on you</p></div>
-        <div class="details" id="det-design-critic"></div>
-        <span class="arrow">→</span>
-      </a>
-    </section>
+    <div id="deck" hidden>
+      <section class="today-panel" aria-label="Today">
+        <div class="tp-col">
+          <p class="mini-h">Today</p>
+          <div class="today-list" id="todayList"></div>
+        </div>
+        <div class="tp-col">
+          <p class="mini-h" id="sinceLabel">Since last time</p>
+          <div class="since-list" id="sinceList"></div>
+        </div>
+      </section>
+
+      <section class="deck">
+        <article class="card">
+          <img src="/code-check/icons/logo.svg" alt="" class="site-logo">
+          <div class="card-text"><h3><a class="card-link" href="/code-check/">Code Check</a></h3><p id="info-code-check">Quiz yourself on your own code</p></div>
+          <div class="details" id="det-code-check"></div>
+          <span class="arrow" aria-hidden="true">→</span>
+        </article>
+        <article class="card">
+          <img src="/screen-map/icons/logo.svg" alt="" class="site-logo">
+          <div class="card-text"><h3><a class="card-link" href="/screen-map/">Screen Map</a></h3><p id="info-screen-map">Your Android app as a flow chart</p></div>
+          <div class="details" id="det-screen-map"></div>
+          <span class="arrow" aria-hidden="true">→</span>
+        </article>
+        <article class="card">
+          <img src="/design-critic/icons/logo.svg" alt="" class="site-logo">
+          <div class="card-text"><h3><a class="card-link" href="/design-critic/">Design Critic</a></h3><p id="info-design-critic">A design review that doesn't go easy on you</p></div>
+          <div class="details" id="det-design-critic"></div>
+          <span class="arrow" aria-hidden="true">→</span>
+        </article>
+      </section>
+
+      <section class="trends" aria-label="Last 30 days">
+        <div class="section-head"><h2>Last 30 days</h2><p>One point per day you open Review Deck. Hover for the day.</p></div>
+        <div class="trend-grid" id="trends"></div>
+      </section>
+
+      <section class="features" id="features" aria-label="Features">
+        <div class="section-head">
+          <div><h2>Features</h2><p id="featSummary">What your app does, what's half-built, and what to build next - read from your code.</p></div>
+          <div class="feat-actions"><span id="featMeta"></span><button class="pill-btn" id="featRun">Check my code</button></div>
+        </div>
+        <div id="featBody"></div>
+      </section>
+    </div>
   </main>
+
+  <!-- a screen from the mini map: its design issues, its quiz, its place in the app -->
+  <dialog class="sheet" id="screenSheet" aria-labelledby="ssTitle">
+    <div class="sheet-head">
+      <div><p class="mini-h" id="ssKind"></p><h2 id="ssTitle"></h2><p class="ss-file" id="ssFile"></p></div>
+      <button class="x-btn" data-close aria-label="Close">×</button>
+    </div>
+    <div class="sheet-body" id="ssBody"></div>
+  </dialog>
+
+  <!-- first open of the day -->
+  <dialog class="sheet morning" id="morning" aria-labelledby="mTitle">
+    <div class="m-timer"><i id="mTimer"></i></div>
+    <p class="mini-h" id="mDate"></p>
+    <h2 id="mTitle"></h2>
+    <div id="mBody"></div>
+    <div class="m-actions" id="mActions"></div>
+  </dialog>
+
+  <!-- the week -->
+  <dialog class="sheet week-report" id="weekReport" aria-labelledby="wTitle">
+    <div class="sheet-head">
+      <div><p class="mini-h">Your week</p><h2 id="wTitle"></h2></div>
+      <div class="wr-actions"><button class="pill-btn" id="wPrint">Save as PDF</button><button class="x-btn" data-close aria-label="Close">×</button></div>
+    </div>
+    <div class="sheet-body" id="wBody"></div>
+  </dialog>
+
+  <!-- the evening reminder (opened by the EveningReviewDeck scheduled task) -->
+  <div class="evening" id="evening" hidden>
+    <div class="ev-card" id="evCard"></div>
+  </div>
 
   <script src="shared.js?v=5"></script>
   <script src="/code-check/js/ingest.js?v=4"></script>
   <script src="/code-check/js/chunks.js?v=4"></script>
   <script src="/code-check/js/ai.js?v=4"></script>
   <script src="/code-check/js/quiz.js?v=4"></script>
-  <script src="app.js?v=7"></script>
+  <script src="insights.js?v=9"></script>
+  <script src="features.js?v=9"></script>
+  <script src="search.js?v=9"></script>
+  <script src="app.js?v=9"></script>
 </body>
 </html>

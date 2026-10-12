@@ -4,6 +4,7 @@
 
 (() => {
   const $ = (id) => document.getElementById(id);
+  const evening = new URLSearchParams(location.search).has("evening");  // opened by the evening reminder task
 
   // ---------------------------------------------------------------- white / black mode
 
@@ -33,9 +34,9 @@
   const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
   const plural = (n, one, many = one + "s") => `${n} ${n === 1 ? one : many}`;
   const pct = (v) => (v > 0 && v < 10 ? v.toFixed(1) : Math.round(v)) + "%";
-  const row = (label, value) => `<div class="row"><span>${label}</span><b>${value}</b></div>`;
   const bar = (parts) => `<div class="bar">${parts.map(([w, cls]) => `<i class="${cls}" style="width:${Math.max(0, Math.min(100, w))}%"></i>`).join("")}</div>`;
   const busy = (text) => `<div class="busy"><i></i>${text}</div>`;
+  const shortDate = (d) => new Date(d + "T00:00").toLocaleDateString(undefined, { month: "short", day: "numeric" });
 
   // ---------------------------------------------------------------- Code Check: mastery ring, week, goal
 
@@ -59,7 +60,6 @@
     const done = new Set(rounds.filter((r) => Object.keys(r.answers || {}).length && ids.has(r.chunk.id)).map((r) => r.chunk.id));
     const scores = rounds.flatMap((r) => Object.values(r.answers || {}).filter((a) => a.feedback).map((a) => a.feedback.score));
     const avg = scores.length ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : null;
-    const touched = m.files.filter((f) => f.known_pct > 0).length;
     const hist = Quiz.history();
     const days = [];
     for (let i = 6; i >= 0; i--) {
@@ -125,9 +125,10 @@
       const my = (y1 + y2) / 2;
       return `<path d="M${x1} ${y1} C${x1} ${my} ${x2} ${my} ${x2} ${y2}" class="${auto ? "auto" : ""}"/>`;
     }).join("");
+    // each box opens that screen's panel; a bigger invisible box makes it easy to hit
     const boxes = g.nodes.map((node, i) => {
       const p = pos[i];
-      return `<g class="node ${node.s ? "start" : ""}"><title>${esc(node.n)}</title><rect x="${p.x}" y="${p.y}" width="${p.w}" height="${nodeH}" rx="4"/><rect x="${p.x}" y="${p.y}" width="3.5" height="${nodeH}" rx="1.5" fill="${KIND_COLOR[node.k] || "var(--ink-3)"}"/></g>`;
+      return `<g class="node ${node.s ? "start" : ""}" data-node="${i}" tabindex="0" role="button" aria-label="${esc(node.n)}"><title>${esc(node.n)}</title><rect x="${p.x - 3}" y="${p.y - 4}" width="${p.w + 6}" height="${nodeH + 8}" class="hit"/><rect x="${p.x}" y="${p.y}" width="${p.w}" height="${nodeH}" rx="4" class="box"/><rect x="${p.x}" y="${p.y}" width="3.5" height="${nodeH}" rx="1.5" fill="${KIND_COLOR[node.k] || "var(--ink-3)"}"/></g>`;
     }).join("");
     return `<svg class="minimap" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet"><g class="edges">${lines}</g>${boxes}</svg>`;
   }
@@ -135,8 +136,9 @@
   function screenMapDetails(s) {
     $("info-screen-map").textContent = `${plural(s.screens, "screen")} and ${plural(s.links, "connection")}`;
     const kinds = [["activity", s.activities, s.activities === 1 ? "activity" : "activities"], ["fragment", s.fragments, s.fragments === 1 ? "fragment" : "fragments"], ["dialog", s.dialogs, s.dialogs === 1 ? "pop-up" : "pop-ups"]].filter(([, c]) => c);
+    const linkable = s.graph && s.graph.nodes.some((x) => x.id);
     $("det-screen-map").innerHTML = `
-      ${s.graph ? `<div class="map-wrap">${miniMap(s.graph)}</div>` : ""}
+      ${s.graph ? `<div class="map-wrap ${linkable ? "live" : ""}">${miniMap(s.graph)}${linkable ? `<p class="map-hint">Click a screen</p>` : ""}</div>` : ""}
       <div class="kinds">${kinds.map(([k, c, label]) => `<span><i style="background:${KIND_COLOR[k]}"></i><b>${c}</b> ${label}</span>`).join("")}</div>
       <div class="tiles">
         <div class="tile"><span>Connections</span><b>${s.links}</b><p class="tile-sub">${s.autoLinks != null ? `${s.autoLinks} automatic` : "taps and jumps"}</p></div>
@@ -145,6 +147,16 @@
         <div class="tile ${s.unreachable && s.unreachable.length ? "warn" : ""}"><span>Unreachable</span><b class="${s.unreachable && s.unreachable.length ? "small" : ""}">${s.unreachable ? (s.unreachable.length ? esc(s.unreachable[0]) + (s.unreachable.length > 1 ? ` +${s.unreachable.length - 1}` : "") : "0") : "–"}</b><p class="tile-sub">${s.layouts != null ? `${s.layouts} XML layouts` : ""}</p></div>
       </div>`;
   }
+
+  // clicks and Enter on a mini map box
+  const mapEl = $("det-screen-map");
+  const nodeAt = (e) => {
+    const g = e.target.closest(".minimap .node");
+    const sm = readJson("sm.summary");
+    return g && sm?.graph ? sm.graph.nodes[Number(g.dataset.node)] : null;
+  };
+  mapEl.addEventListener("click", (e) => { const n = nodeAt(e); if (n && n.id) { e.preventDefault(); openScreenSheet(n); } });
+  mapEl.addEventListener("keydown", (e) => { if (e.key !== "Enter" && e.key !== " ") return; const n = nodeAt(e); if (n && n.id) { e.preventDefault(); openScreenSheet(n); } });
 
   // ---------------------------------------------------------------- Design Critic: grade, severities, types, worst screens
 
@@ -190,7 +202,7 @@
     frame.tabIndex = -1;
     running[tool] = frame;
     const finish = () => { clearTimeout(timer); window.removeEventListener("storage", onStore); frame.remove(); delete running[tool]; };
-    const onStore = (e) => { if (e.key === key) { finish(); refreshTools(); } };
+    const onStore = (e) => { if (e.key === key) { finish(); fillCards(current); } };
     const timer = setTimeout(() => { finish(); $(`det-${tool}`).innerHTML = `<p class="note">Open it once to see the details.</p>`; }, 180000);
     window.addEventListener("storage", onStore);
     document.body.append(frame);
@@ -199,12 +211,14 @@
   let current = null;
   function refreshTools() {
     if (!current) return;
-    const fresh = (s, field) => s && s.at >= current.savedAt && s[field] !== undefined;  // older summaries lack the chart data
+    // older summaries lack the chart data (graph, top) and the links (node ids, issue list)
+    const fresh = (s, field) => s && s.at >= current.savedAt && s[field] !== undefined;
     const sm = readJson("sm.summary"), dc = readJson("dc.summary");
-    if (fresh(sm, "graph")) screenMapDetails(sm); else runInBackground("screen-map", "sm.summary", "Mapping your screens…");
+    const smOk = fresh(sm, "graph") && sm.graph.nodes.every((n) => "id" in n);
+    if (smOk) screenMapDetails(sm); else runInBackground("screen-map", "sm.summary", "Mapping your screens…");
     // one at a time: the review starts after the map is done
-    if (fresh(dc, "top")) designCriticDetails(dc);
-    else if (fresh(sm, "graph")) runInBackground("design-critic", "dc.summary", "Reviewing your design…");
+    if (fresh(dc, "issues")) designCriticDetails(dc);
+    else if (smOk) runInBackground("design-critic", "dc.summary", "Reviewing your design…");
     else $("det-design-critic").innerHTML = busy("Waiting to review your design…");
   }
 
@@ -212,6 +226,436 @@
     current = project;
     try { codeCheckDetails(); } catch { /* keeps its tagline */ }
     refreshTools();
+    renderHome();
+  }
+
+  // ---------------------------------------------------------------- today, since last time, trends
+
+  const TONE_ICON = {
+    good: '<path d="m5 12 5 5 9-10"/>',
+    bad: '<path d="M12 8v5m0 3.5v.5"/><circle cx="12" cy="12" r="9"/>',
+    todo: '<circle cx="12" cy="12" r="8"/>',
+    info: '<path d="M5 12h14m-6-6 6 6-6 6"/>',
+  };
+  const toneIcon = (tone) => `<svg viewBox="0 0 24 24" aria-hidden="true">${TONE_ICON[tone] || TONE_ICON.info}</svg>`;
+  const itemHtml = (it, cls) => `<a class="${cls} tone-${it.tone}" href="${esc(it.href || "#")}">${toneIcon(it.tone)}<span>${esc(it.text)}</span></a>`;
+
+  function renderToday(snap) {
+    $("todayList").innerHTML = Insights.today(snap).map((it) => itemHtml(it, "t-item")).join("");
+    const since = Insights.sinceLastTime(snap);
+    $("sinceLabel").textContent = since ? since.label : "Since last time";
+    $("sinceList").innerHTML = !since
+      ? `<p class="note">Changes show up here from your second visit.</p>`
+      : since.items.length
+        ? since.items.map((it) => itemHtml(it, "s-pill")).join("")
+        : `<p class="note">${since.firstDay ? "Nothing has changed yet today. Edit your code and it shows up here." : "Nothing has changed since then."}</p>`;
+  }
+
+  // one line per measure, its own scale; hover shows the day
+  const charts = {};
+  function lineChart(id, points, fmt) {
+    charts[id] = { points, fmt };
+    const W = 300, H = 72, top = 8, bottom = 6;
+    if (points.length < 2) return `<div class="tchart empty"><span>${points.length ? "The line starts tomorrow" : "No data yet"}</span></div>`;
+    const vs = points.map((p) => p.v);
+    let lo = Math.min(...vs), hi = Math.max(...vs);
+    const pad = Math.max((hi - lo) * 0.15, hi === lo ? Math.max(1, Math.abs(hi) * 0.05) : 0);
+    lo -= pad; hi += pad;
+    const x = (i) => (i / (points.length - 1)) * W;
+    const y = (v) => top + (1 - (v - lo) / (hi - lo)) * (H - top - bottom);
+    const line = points.map((p, i) => `${i ? "L" : "M"}${x(i).toFixed(1)} ${y(p.v).toFixed(1)}`).join(" ");
+    const last = points.length - 1;
+    charts[id].xy = points.map((p, i) => [x(i) / W * 100, y(p.v) / H * 100]);
+    return `<div class="tchart" data-chart="${id}">
+      <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">
+        <path class="t-area" d="${line} L${W} ${H} L0 ${H} Z"/><path class="t-line" d="${line}"/>
+      </svg>
+      <i class="t-cross" hidden></i><i class="t-dot" style="left:${charts[id].xy[last][0]}%;top:${charts[id].xy[last][1]}%"></i>
+      <div class="t-tip" hidden></div>
+    </div>`;
+  }
+
+  function hoverChart(e) {
+    const el = e.target.closest(".tchart[data-chart]");
+    if (!el) return;
+    const c = charts[el.dataset.chart];
+    const r = el.getBoundingClientRect();
+    const i = Math.round(Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * (c.points.length - 1));
+    const [px, py] = c.xy[i];
+    const cross = el.querySelector(".t-cross"), dot = el.querySelector(".t-dot"), tip = el.querySelector(".t-tip");
+    cross.hidden = tip.hidden = false;
+    cross.style.left = dot.style.left = `${px}%`;
+    dot.style.top = `${py}%`;
+    tip.innerHTML = `<b>${c.fmt(c.points[i].v)}</b> ${shortDate(c.points[i].d)}`;
+    tip.style.left = `${Math.max(14, Math.min(86, px))}%`;
+  }
+  function leaveChart(e) {
+    const el = e.target.closest(".tchart[data-chart]");
+    if (!el) return;
+    const c = charts[el.dataset.chart], [px, py] = c.xy[c.xy.length - 1];
+    el.querySelector(".t-cross").hidden = el.querySelector(".t-tip").hidden = true;
+    Object.assign(el.querySelector(".t-dot").style, { left: `${px}%`, top: `${py}%` });
+  }
+  $("trends").addEventListener("mousemove", hoverChart);
+  $("trends").addEventListener("mouseout", (e) => { if (!e.relatedTarget || !e.target.closest(".tchart")?.contains(e.relatedTarget)) leaveChart(e); });
+
+  function renderTrends(snap) {
+    const today = isoDate(new Date());
+    // today's point is always the live value
+    const withNow = (pts, v) => (v == null ? pts : [...pts.filter((p) => p.d !== today), { d: today, v }]);
+    const tiles = [
+      { id: "score", title: "Design score", unit: "/100", pts: withNow(Insights.series((s) => s.dc?.score), snap.dc?.score), fmt: (v) => `${Math.round(v)}`, good: 1 },
+      { id: "known", title: "Code known", unit: "%", pts: withNow(Insights.series((s) => s.cc?.known), snap.cc?.known), fmt: (v) => pct(v), good: 1 },
+      { id: "screens", title: "Screens", unit: "", pts: withNow(Insights.series((s) => s.sm?.screens), snap.sm?.screens), fmt: (v) => `${Math.round(v)}`, good: 0 },
+    ];
+    $("trends").innerHTML = tiles.map((t) => {
+      const lastV = t.pts.length ? t.pts[t.pts.length - 1].v : null;
+      const d = t.pts.length > 1 ? lastV - t.pts[0].v : 0;
+      const dTxt = t.pts.length > 1 ? `${d > 0 ? "+" : d < 0 ? "−" : "±"}${t.id === "known" ? Math.abs(d).toFixed(1) + "%" : Math.abs(Math.round(d))} since ${shortDate(t.pts[0].d)}` : "";
+      const tone = !d || !t.good ? "" : d > 0 ? "up" : "down";
+      return `<div class="trend">
+        <div class="tr-head"><span>${t.title}</span><b>${lastV == null ? "–" : t.id === "known" ? pct(lastV) : Math.round(lastV)}<small>${t.id === "known" ? "" : t.unit}</small></b></div>
+        <p class="tr-delta ${tone}">${dTxt || "&nbsp;"}</p>
+        ${lineChart(t.id, t.pts, t.id === "known" ? (v) => pct(v) : t.fmt)}
+      </div>`;
+    }).join("");
+  }
+
+  // ---------------------------------------------------------------- features (read from your code by Gemini)
+
+  const FEAT_COLS = [
+    ["built", "Built", "Works today"],
+    ["in_progress", "In progress", "Started, not finished"],
+    ["recommended", "Recommended", "Build or fix next"],
+  ];
+  let featOpen = {};
+  let featError = null;  // the last failed check, shown until the next one works
+
+  function screenNode(name) {
+    const nodes = readJson("sm.summary")?.graph?.nodes || [];
+    const low = name.toLowerCase().replace(/\s+/g, "");
+    return nodes.find((n) => n.n.toLowerCase().replace(/\s+/g, "") === low || (n.id || "").toLowerCase() === low)
+      || nodes.find((n) => low.includes(n.n.toLowerCase().replace(/\s+/g, "")));
+  }
+
+  function fileOf(path) {
+    const files = Session.files || [];
+    return files.find((f) => f.path === path) || files.find((f) => f.path.endsWith("/" + path.replace(/^\/+/, ""))) || files.find((f) => f.path.split("/").pop() === path.split("/").pop());
+  }
+
+  const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+
+  function evidence(f) {
+    const screens = [...new Set(f.screens || [])].map((s) => {
+      const n = screenNode(s);
+      return n && n.id ? `<button class="ev ev-screen" data-screen="${esc(n.id)}">${esc(n.n)}</button>` : `<span class="ev ev-screen">${esc(s)}</span>`;
+    });
+    const files = [...new Set(f.files || [])].slice(0, 4).map((p) => {
+      const file = fileOf(p);
+      return file ? `<a class="ev ev-file" href="/code-check/?file=${encodeURIComponent(file.path)}" title="Quiz me on ${esc(file.path)}">${esc(file.path.split("/").pop())}</a>` : "";
+    });
+    const all = [...screens, ...files].filter(Boolean);
+    return all.length ? `<div class="evs">${all.join("")}</div>` : "";
+  }
+
+  function featureCard(list, f) {
+    const extra = list === "in_progress"
+      ? `<p class="missing"><span>Still missing</span>${esc(f.missing)}</p>`
+      : list === "recommended"
+        ? `<div class="chips"><span class="chip effort-${f.effort}">${esc(f.effort)} effort</span><span class="chip">${esc(f.type)}</span></div>`
+        : "";
+    return `<div class="feat" id="feat-${slug(f.name)}"><b>${esc(f.name)}</b><p>${esc(list === "recommended" ? f.why : f.detail)}</p>${extra}${evidence(f)}</div>`;
+  }
+
+  function renderFeatures() {
+    const saved = Features.saved();
+    const body = $("featBody"), btn = $("featRun");
+    btn.disabled = Features.running();
+    btn.textContent = saved ? "Check again" : "Check my code";
+    if (Features.running()) {
+      $("featMeta").textContent = "";
+      body.innerHTML = busy("Reading all of your code… this takes up to a minute.");
+      return;
+    }
+    const error = featError ? `<p class="setup-error">Couldn't check your code: ${esc(featError)}</p>` : "";
+    if (!saved) {
+      $("featMeta").textContent = "";
+      body.innerHTML = error || `<p class="note">Gemini reads your whole project once and lists your features here.</p>`;
+      return;
+    }
+    const r = saved.result;
+    $("featSummary").textContent = r.summary;
+    const stale = Features.stale(current);
+    $("featMeta").innerHTML = `${stale ? `<span class="stale">Your code changed since</span> · ` : ""}checked ${ago(saved.at)} · ${plural(saved.files, "file")} read`;
+    body.innerHTML = `${error}<div class="feat-cols">${FEAT_COLS.map(([key, label, sub]) => {
+      const items = r[key] || [];
+      const limit = featOpen[key] ? items.length : 5;
+      return `<div class="feat-col col-${key}">
+        <div class="fc-head"><span class="fc-dot"></span><h3>${label}</h3><b>${items.length}</b><small>${sub}</small></div>
+        ${items.length ? items.slice(0, limit).map((f) => featureCard(key, f)).join("") : `<p class="note">Nothing here.</p>`}
+        ${items.length > limit ? `<button class="link-btn" data-more="${key}">Show all ${items.length}</button>` : ""}
+      </div>`;
+    }).join("")}</div>`;
+  }
+
+  // reads the code when there's no list yet, or when the code changed and the list is over 6 hours old
+  async function runFeatures(force = false) {
+    const saved = Features.saved();
+    if (!current || !Session.key) return;
+    if (!force && saved && !(Features.stale(current) && Date.now() - saved.at > 6 * 3600000)) return;
+    if (!force && featError) return;  // don't retry a failing check on every refresh - the button does
+    const p = Features.run(current);
+    renderFeatures();
+    try { await p; featError = null; renderToday(Insights.snapshot()); }
+    catch (e) { featError = e.message || String(e); }
+    renderFeatures();
+  }
+
+  $("featRun").onclick = () => runFeatures(true);
+  $("featBody").addEventListener("click", (e) => {
+    const more = e.target.closest("[data-more]");
+    if (more) { featOpen[more.dataset.more] = true; renderFeatures(); return; }
+    const sc = e.target.closest("[data-screen]");
+    if (sc) {
+      const n = (readJson("sm.summary")?.graph?.nodes || []).find((x) => x.id === sc.dataset.screen);
+      if (n) openScreenSheet(n);
+    }
+  });
+
+  function showFeature(name) {
+    for (const k of Object.keys(featOpen)) delete featOpen[k];
+    FEAT_COLS.forEach(([k]) => (featOpen[k] = true));
+    renderFeatures();
+    const el = document.getElementById(`feat-${slug(name)}`);
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    el.classList.remove("flash"); void el.offsetWidth; el.classList.add("flash");
+  }
+
+  function renderHome() {
+    const snap = Insights.record();
+    renderToday(snap);
+    renderTrends(snap);
+    renderFeatures();
+  }
+
+  // "In progress" in the Today list jumps down to the features
+  document.addEventListener("click", (e) => {
+    const a = e.target.closest('a[href="#features"]');
+    if (!a) return;
+    e.preventDefault();
+    closeDialogs();
+    $("features").scrollIntoView({ behavior: "smooth" });
+  });
+
+  // ---------------------------------------------------------------- one screen: its issues, its quiz, its links
+
+  function openScreenSheet(node) {
+    const sm = readJson("sm.summary"), dc = readJson("dc.summary");
+    const nodes = sm?.graph?.nodes || [];
+    const idx = nodes.findIndex((n) => n.id === node.id);
+    const to = (sm?.graph?.edges || []).filter(([a]) => a === idx).map(([, b]) => nodes[b]);
+    const from = (sm?.graph?.edges || []).filter(([, b]) => b === idx).map(([a]) => nodes[a]);
+    $("ssKind").textContent = `${node.k === "dialog" ? "Pop-up" : node.k}${node.s ? " · app starts here" : ""}`;
+    $("ssTitle").textContent = node.n;
+    $("ssFile").textContent = node.f || "";
+
+    const issues = (dc?.issues || []).filter((i) => i.s === node.id);
+    const sevOrder = { blocker: 0, major: 1, minor: 2 };
+    issues.sort((a, b) => sevOrder[a.v] - sevOrder[b.v]);
+    const design = !dc
+      ? `<p class="note">Design Critic hasn't reviewed your app yet.</p>`
+      : issues.length
+        ? `<div class="ss-issues">${issues.slice(0, 8).map((i) => `<a class="ss-issue" href="/design-critic/?issue=${encodeURIComponent(i.k)}"><i class="sev-${i.v[0]}"></i><span>${esc(i.t)}</span></a>`).join("")}${issues.length > 8 ? `<p class="note">+${issues.length - 8} more</p>` : ""}</div>`
+        : `<p class="note good-note">No open design issues on this screen.</p>`;
+
+    let quiz = `<p class="note">No code file found for this screen.</p>`;
+    let quizBtn = "";
+    if (node.f) {
+      let known = 0, chunks = 0;
+      try { const f = Quiz.mastery().files.find((x) => x.file === node.f); if (f) { known = f.known_pct; chunks = f.chunks; } } catch {}
+      const rounds = (() => { try { return Object.values(allRounds()).filter((r) => r.chunk.file === node.f).sort((a, b) => b.round_id.localeCompare(a.round_id)); } catch { return []; } })();
+      const past = rounds.slice(0, 4).map((r) => {
+        const s = Object.values(r.answers || {}).filter((a) => a.feedback).map((a) => a.feedback.score);
+        const avg = s.length ? Math.round(s.reduce((a, b) => a + b, 0) / s.length) : null;
+        return `<div class="ss-round"><span>${esc(r.title || r.chunk.owner)}</span><small>${shortDate(r.date)}</small><b class="${avg == null ? "" : avg >= 80 ? "hi" : avg >= 50 ? "mid" : "lo"}">${avg ?? "–"}</b></div>`;
+      }).join("");
+      quiz = `<div class="ss-known"><div class="track"><i style="width:${Math.min(100, known)}%;background:var(--green)"></i></div><b>${pct(known)}</b><span>known · ${plural(chunks, "chunk")}</span></div>
+        ${past ? `<div class="ss-rounds">${past}</div>` : `<p class="note">You haven't been quizzed on this screen's code yet.</p>`}`;
+      quizBtn = `<a class="pill-btn dark" href="/code-check/?file=${encodeURIComponent(node.f)}">Quiz me on this screen</a>`;
+    }
+    const chips = (list) => list.length ? list.map((n) => `<button class="ev ev-screen" data-screen="${esc(n.id)}">${esc(n.n)}</button>`).join("") : `<span class="note">nothing</span>`;
+    $("ssBody").innerHTML = `
+      <section class="ss-sec">
+        <div class="ss-h"><img src="/design-critic/icons/logo.svg" alt=""><h3>Design</h3><span>${plural(issues.length, "open issue")}</span></div>
+        ${design}
+        <a class="pill-btn" href="/design-critic/?screen=${encodeURIComponent(node.id)}">Review this screen</a>
+      </section>
+      <section class="ss-sec">
+        <div class="ss-h"><img src="/code-check/icons/logo.svg" alt=""><h3>Your code</h3></div>
+        ${quiz}
+        ${quizBtn}
+      </section>
+      <section class="ss-sec">
+        <div class="ss-h"><img src="/screen-map/icons/logo.svg" alt=""><h3>In the app</h3></div>
+        <div class="ss-links"><span>Leads to</span><div class="evs">${chips(to)}</div></div>
+        <div class="ss-links"><span>Reached from</span><div class="evs">${chips(from)}</div></div>
+        <a class="pill-btn" href="/screen-map/?screen=${encodeURIComponent(node.id)}">Open in Screen Map</a>
+      </section>`;
+    const d = $("screenSheet");
+    if (!d.open) d.showModal();
+  }
+
+  $("ssBody").addEventListener("click", (e) => {
+    const sc = e.target.closest("[data-screen]");
+    if (!sc) return;
+    const n = (readJson("sm.summary")?.graph?.nodes || []).find((x) => x.id === sc.dataset.screen);
+    if (n) openScreenSheet(n);
+  });
+
+  // ---------------------------------------------------------------- dialogs: close on ×, Esc, or a click outside
+
+  function closeDialogs() { for (const d of document.querySelectorAll("dialog[open]")) d.close(); }
+  for (const d of document.querySelectorAll("dialog")) {
+    d.addEventListener("click", (e) => { if (e.target === d || e.target.closest("[data-close]")) d.close(); });
+  }
+
+  // ---------------------------------------------------------------- the morning: what's up today, for 10 seconds
+
+  function greeting() {
+    const h = new Date().getHours();
+    return h < 5 ? "Up early" : h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
+  }
+
+  function showMorning() {
+    const snap = Insights.snapshot();
+    const todo = Insights.today(snap);
+    const since = Insights.sinceLastTime(snap);
+    const sunday = new Date().getDay() === 0;
+    $("mDate").textContent = new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
+    $("mTitle").textContent = `${greeting()}${current ? `, here's ${current.name}` : ""}`;
+    $("mBody").innerHTML = `
+      <div class="m-list">${todo.map((it) => itemHtml(it, "t-item")).join("")}</div>
+      ${since && since.items.length ? `<p class="mini-h">${esc(since.label)}</p><div class="since-list">${since.items.slice(0, 6).map((it) => itemHtml(it, "s-pill")).join("")}</div>` : ""}`;
+    const first = todo.find((t) => t.tone === "bad" || t.tone === "todo");
+    $("mActions").innerHTML = `
+      <button class="pill-btn" data-close>Close</button>
+      ${sunday ? `<button class="pill-btn dark" id="mWeek">See your week</button>` : first ? `<a class="pill-btn dark" href="${esc(first.href)}">Start: ${esc(first.text)}</a>` : ""}`;
+    $("mWeek")?.addEventListener("click", () => { $("morning").close(); showWeek(); });
+    const timer = $("mTimer");
+    timer.style.animation = "none"; void timer.offsetWidth; timer.style.animation = "";
+    $("morning").showModal();
+  }
+  // the bar runs out in 10 s (paused while the mouse is on it), then it closes
+  $("mTimer").addEventListener("animationend", () => $("morning").close());
+
+  function maybeMorning() {
+    if (evening) return;
+    const today = isoDate(new Date());
+    let last = null;
+    try { last = localStorage.getItem("rd.morning"); } catch {}
+    if (last === today) return;
+    try { localStorage.setItem("rd.morning", today); } catch {}
+    showMorning();
+  }
+
+  // ---------------------------------------------------------------- the week
+
+  function sparkPath(points, W, H) {
+    if (points.length < 2) return "";
+    const vs = points.map((p) => p.v);
+    let lo = Math.min(...vs), hi = Math.max(...vs);
+    if (hi - lo < 1) { lo -= 1; hi += 1; }
+    return points.map((p, i) => `${i ? "L" : "M"}${((i / (points.length - 1)) * W).toFixed(1)} ${(4 + (1 - (p.v - lo) / (hi - lo)) * (H - 8)).toFixed(1)}`).join(" ");
+  }
+
+  function showWeek() {
+    const w = Insights.week();
+    const a = w.a || {}, b = w.b || Insights.snapshot();
+    $("wTitle").textContent = `${shortDate(w.start)} – ${shortDate(w.end)}`;
+    const delta = (x, y, f = (v) => v) => (x == null || y == null ? "" : y === x ? `<small>no change</small>` : `<small class="${y > x ? "up" : "down"}">${y > x ? "+" : "−"}${f(Math.abs(y - x))}</small>`);
+    const files = [...w.code.added.map((p) => ["added", p]), ...w.code.edited.map((p) => ["edited", p]), ...w.code.removed.map((p) => ["removed", p])];
+    $("wBody").innerHTML = `
+      ${w.highlights.length ? `<div class="since-list wr-high">${w.highlights.map((it) => itemHtml(it, "s-pill")).join("")}</div>` : `<p class="note">${w.openedDays ? "A quiet week - nothing changed." : "Open Review Deck on a few days and your week fills in."}</p>`}
+      <div class="wr-grid">
+        <section class="wr-sec">
+          <div class="ss-h"><img src="/code-check/icons/logo.svg" alt=""><h3>Quiz</h3></div>
+          <div class="wr-days">${w.days.map((d) => `<div class="${d.met ? "met" : d.answered ? "some" : ""}"><i>${d.met ? "✓" : d.answered || ""}</i><span>${d.label}</span></div>`).join("")}</div>
+          <div class="wr-stats">
+            <div><b>${w.goalDays}<small>/7</small></b><span>goal days</span></div>
+            <div><b>${w.answered}</b><span>answers</span></div>
+            <div><b>${w.avg ?? "–"}</b><span>avg score</span></div>
+            <div><b>${w.chunks}</b><span>chunks</span></div>
+          </div>
+          <p class="wr-line">Code known: <b>${a.cc ? pct(a.cc.known) : "–"} → ${b.cc ? pct(b.cc.known) : "–"}</b> ${delta(a.cc?.known, b.cc?.known, (v) => v.toFixed(1) + "%")}</p>
+        </section>
+        <section class="wr-sec">
+          <div class="ss-h"><img src="/design-critic/icons/logo.svg" alt=""><h3>Design</h3></div>
+          <div class="wr-grade">
+            ${a.dc ? `<div class="grade grade-${a.dc.grade} sm"><b>${a.dc.grade}</b></div><span class="arrow-r">→</span>` : ""}
+            ${b.dc ? `<div class="grade grade-${b.dc.grade} sm"><b>${b.dc.grade}</b></div>` : ""}
+            <div><p class="wr-line">Score <b>${a.dc?.score ?? "–"} → ${b.dc?.score ?? "–"}</b> ${delta(a.dc?.score, b.dc?.score)}</p>
+            ${w.score.length > 1 ? `<svg class="wr-spark" viewBox="0 0 160 36" preserveAspectRatio="none"><path d="${sparkPath(w.score, 160, 36)}"/></svg>` : ""}</div>
+          </div>
+          <div class="wr-stats">
+            <div><b>${w.fixed ?? "–"}</b><span>fixed</span></div>
+            <div><b>${w.fresh ?? "–"}</b><span>new issues</span></div>
+            <div><b>${b.dc?.blockers ?? "–"}</b><span>blockers left</span></div>
+          </div>
+        </section>
+        <section class="wr-sec">
+          <div class="ss-h"><img src="/screen-map/icons/logo.svg" alt=""><h3>Screens</h3></div>
+          <p class="wr-line">Screens <b>${a.sm?.screens ?? "–"} → ${b.sm?.screens ?? "–"}</b> ${delta(a.sm?.screens, b.sm?.screens)}</p>
+          <p class="wr-line">Connections <b>${a.sm?.links ?? "–"} → ${b.sm?.links ?? "–"}</b> ${delta(a.sm?.links, b.sm?.links)}</p>
+          ${w.newScreens.length ? `<p class="mini-h">New this week</p><div class="evs">${w.newScreens.map((n) => `<span class="ev ev-screen">${esc(n)}</span>`).join("")}</div>` : `<p class="note">No new screens this week.</p>`}
+        </section>
+        <section class="wr-sec">
+          <div class="ss-h"><img src="icons/logo.svg" alt=""><h3>Code</h3></div>
+          <div class="wr-stats">
+            <div><b>${w.code.added.length}</b><span>added</span></div>
+            <div><b>${w.code.edited.length}</b><span>edited</span></div>
+            <div><b>${w.code.removed.length}</b><span>removed</span></div>
+          </div>
+          ${files.length ? `<div class="wr-files">${files.slice(0, 10).map(([k, p]) => `<div><i class="fk-${k}">${k}</i><span title="${esc(p)}">${esc(p.split("/").pop())}</span></div>`).join("")}${files.length > 10 ? `<p class="note">+${files.length - 10} more</p>` : ""}</div>` : `<p class="note">${DeckStore.canLink ? "No code changes picked up this week." : "Turn on auto-update to track code changes."}</p>`}
+        </section>
+      </div>`;
+    $("weekReport").showModal();
+  }
+
+  $("weekBtn").onclick = showWeek;
+  $("wPrint").onclick = () => { document.body.classList.add("printing-week"); window.print(); };
+  window.addEventListener("afterprint", () => document.body.classList.remove("printing-week"));
+
+  // ---------------------------------------------------------------- the evening: keep the streak alive
+
+  function showEvening() {
+    history.replaceState(null, "", location.pathname);  // a reload is the normal home page
+    let st;
+    try { st = dailyStatus(); } catch { return; }
+    const card = $("evCard");
+    $("evening").hidden = false;
+    if (st.goal_met) {
+      card.innerHTML = `<div class="ev-icon good">✓</div><h2>Streak safe</h2><p>Today's quiz is done${st.streak ? ` - ${plural(st.streak, "day")} in a row` : ""}. See you tomorrow.</p>`;
+      setTimeout(() => window.close(), 2500);  // the reminder window was opened just for this
+      return;
+    }
+    const left = st.goal - st.today_answered;
+    const title = st.streak ? `Your ${st.streak}-day streak ends tonight` : "You haven't quizzed today";
+    const body = `Answer ${plural(left, "more question")} to ${st.streak ? "keep it going" : "start a streak"}.`;
+    card.innerHTML = `
+      <div class="ev-icon"><svg viewBox="0 0 24 24"><path d="M12 2c1 3.5 5 6 5 11a5 5 0 0 1-10 0c0-2.2 1-3.8 2.2-5 .3 1.6 1 2.6 2 3C11 8 11.5 5 12 2Z"/></svg></div>
+      <h2>${title}</h2><p>${body}</p>
+      <div class="ev-actions"><button class="pill-btn" id="evLater">Not tonight</button><a class="pill-btn dark" href="/code-check/">Answer now</a></div>
+      ${"Notification" in window && Notification.permission === "default" ? `<button class="link-btn" id="evAllow">Also show a Windows notification</button>` : ""}`;
+    $("evLater").onclick = () => { $("evening").hidden = true; };
+    const notify = () => {
+      const n = new Notification(title, { body, icon: "icons/icon-192.png", tag: "rd-streak", requireInteraction: true });
+      n.onclick = () => { window.focus(); location.href = "/code-check/"; };
+    };
+    if ("Notification" in window && Notification.permission === "granted") notify();
+    $("evAllow")?.addEventListener("click", async () => {
+      if (await Notification.requestPermission() === "granted") { $("evAllow").remove(); notify(); }
+    });
   }
 
   // ---------------------------------------------------------------- sign in / new code
@@ -236,12 +680,14 @@
     $("setup").hidden = false;
     $("deck").hidden = true;
     $("topActions").hidden = true;
+    $("searchBox").hidden = true;
   }
 
   function showDeck(project) {
     $("setup").hidden = true;
     $("deck").hidden = false;
     $("topActions").hidden = false;
+    $("searchBox").hidden = false;
     $("projectLine").textContent = project.linked
       ? `${project.name} · kept up to date with your folder · last change ${ago(project.savedAt)}`
       : `${project.name} · code from ${ago(project.savedAt)}`;
@@ -287,6 +733,7 @@
       const project = await DeckStore.save(name, items, dir);                    // for Screen Map and Design Critic
       await Session.save(key, { name, language: mainLanguage(read.files), files: read.files.length, lines: read.lines }, read.files);  // for Code Check
       showDeck(project);
+      runFeatures();
     } catch (ex) {
       fail(ex.message || String(ex));
     } finally {
@@ -330,12 +777,31 @@
 
   let syncing = false;
 
+  // what changed, for "since last time" and the week, and which new code Code Check should ask about first
+  function noteChanges(before, beforeChunks, files) {
+    if (!before.size) return;
+    const now = new Map(files.map((f) => [f.path, f.code]));
+    const added = [...now.keys()].filter((p) => !before.has(p));
+    const edited = [...now.keys()].filter((p) => before.has(p) && before.get(p) !== now.get(p));
+    const removed = [...before.keys()].filter((p) => !now.has(p));
+    Insights.logChange({ added, edited, removed });
+    const touched = new Set([...added, ...edited]);
+    const fresh = Session.chunks.filter((c) => touched.has(c.file) && !beforeChunks.has(c.code));
+    if (!fresh.length) return;
+    fresh.sort((a, b) => isMarkup(a) - isMarkup(b));  // real code before layouts
+    const focus = [...new Set([...fresh.map((c) => c.id), ...store.json("focus", [])])].slice(0, 40);
+    store.setJson("focus", focus);
+  }
+
   async function applyCode(items, dir) {
     const read = await readProject(items);
     if (!read.files.length || !allChunks(read.files).length) return;
+    const before = new Map((Session.files || []).map((f) => [f.path, f.code]));
+    const beforeChunks = new Set((Session.chunks || []).map((c) => c.code));
     const old = await DeckStore.project();
     const project = await DeckStore.save(old.name, items, dir);
     await Session.save(Session.key, { ...Session.project, name: old.name, language: mainLanguage(read.files), files: read.files.length, lines: read.lines }, read.files);
+    noteChanges(before, beforeChunks, read.files);
     showDeck(project);
   }
 
@@ -375,14 +841,22 @@
 
   // ---------------------------------------------------------------- start
 
+  let started = false;
   async function start() {
     const project = await DeckStore.project();
     const signedIn = project && await Session.load().catch(() => false);
     if (!signedIn) return showSetup("signin");
     DeckStore.keepForever();
     showDeck(project);
-    syncCode();
+    if (!started) {
+      started = true;
+      if (evening) showEvening(); else maybeMorning();
+    }
+    await syncCode();
+    runFeatures();
   }
+
+  Search.init({ screen: openScreenSheet, feature: showFeature });
 
   // coming back from a tool shows fresh numbers
   window.addEventListener("pageshow", (e) => { if (e.persisted && !$("deck").hidden) start(); });

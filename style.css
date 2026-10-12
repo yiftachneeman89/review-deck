@@ -70,15 +70,21 @@ a { color: inherit; }
 
 main { max-width: 1180px; margin: 0 auto; padding: 48px 28px 60px; }
 
-/* home: just the three tools */
-.deck { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; margin-top: 6vh; }
+/* home: today, the three tools, trends, features */
+main:has(#deck:not([hidden])) { padding-top: 28px; }
+.deck { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; margin-top: 18px; }
 .card {
   position: relative; display: flex; flex-direction: column; align-items: flex-start; gap: 22px; min-height: 260px;
   padding: 28px 26px 24px; border-radius: 20px; background: var(--paper); border: 1px solid var(--line);
   text-decoration: none; transition: border-color .15s, transform .15s, box-shadow .15s;
 }
 .card:hover { border-color: var(--ink); transform: translateY(-3px); box-shadow: 0 16px 36px rgba(0,0,0,.1); }
-.card:focus-visible { outline: 3px solid var(--ink); outline-offset: 3px; }
+/* the title link covers the whole card; the mini map sits above it so its screens can be clicked */
+.card-link { text-decoration: none; }
+.card-link::after { content: ""; position: absolute; inset: 0; border-radius: 20px; }
+.card-link:focus-visible { outline: none; }
+.card:has(.card-link:focus-visible) { outline: 3px solid var(--ink); outline-offset: 3px; }
+.map-wrap.live { position: relative; z-index: 1; }
 .site-logo { width: 56px; height: 56px; }
 :root[data-theme="dark"] .site-logo { box-shadow: 0 0 0 1px var(--line-2); border-radius: 14px; }
 .card-text { flex: 1; }
@@ -177,8 +183,12 @@ main { max-width: 1180px; margin: 0 auto; padding: 48px 28px 60px; }
 .minimap { display: block; width: 100%; height: auto; max-height: 230px; }
 .minimap .edges path { fill: none; stroke: var(--ink-3); stroke-width: 1.1; opacity: .55; }
 .minimap .edges path.auto { stroke-dasharray: 3 3; }
-.minimap .node rect:first-of-type { fill: var(--paper); stroke: var(--line-2); stroke-width: 1; }
-.minimap .node.start rect:first-of-type { stroke: var(--red); stroke-width: 1.6; }
+.minimap .node .hit { fill: transparent; }
+.minimap .node .box { fill: var(--paper); stroke: var(--line-2); stroke-width: 1; transition: stroke .1s, fill .1s; }
+.minimap .node.start .box { stroke: var(--red); stroke-width: 1.6; }
+.map-wrap.live .node { cursor: pointer; outline: none; }
+.map-wrap.live .node:hover .box, .map-wrap.live .node:focus-visible .box { stroke: var(--ink); stroke-width: 2; fill: var(--sunk); }
+.map-hint { position: absolute; right: 10px; bottom: 6px; margin: 0; font-size: 11px; font-weight: 600; color: var(--ink-3); pointer-events: none; }
 .kinds { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12.5px; color: var(--ink-2); }
 .kinds span { display: inline-flex; align-items: center; gap: 6px; }
 .kinds i { width: 10px; height: 10px; border-radius: 3px; }
