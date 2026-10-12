@@ -358,13 +358,43 @@
     return all.length ? `<div class="evs">${all.join("")}</div>` : "";
   }
 
+  // ---------------------------------------------------------------- editing and removing any feature
+  let editing = null;      // { key, list, name, text, missing } - the one card being edited
+  let lastRemoved = null;  // { label, undo() } - for the Undo bar
+
+  const textField = (list) => (list === "recommended" ? "why" : "detail");
+
+  function editForm(list, f, mine = null) {
+    const e = editing;
+    if (mine) {
+      return `<form class="feat edit-form" data-edit-form="${esc(e.key)}">
+        <label for="edit-text">Your feature</label>
+        <textarea id="edit-text" data-field="text" rows="3">${esc(e.text)}</textarea>
+        <p class="note">Saving checks your code for it again.</p>
+        <div class="add-actions"><button type="button" class="pill-btn" data-edit-cancel>Cancel</button><button type="submit" class="pill-btn dark">Save and check</button></div>
+      </form>`;
+    }
+    return `<form class="feat edit-form" data-edit-form="${esc(e.key)}">
+      <label for="edit-name">Name</label>
+      <input id="edit-name" class="field" data-field="name" value="${esc(e.name)}" maxlength="80">
+      <label for="edit-text">${list === "recommended" ? "Why it helps" : "What it does"}</label>
+      <textarea id="edit-text" data-field="text" rows="3">${esc(e.text)}</textarea>
+      ${list === "in_progress" ? `<label for="edit-missing">Still missing</label><textarea id="edit-missing" data-field="missing" rows="2">${esc(e.missing)}</textarea>` : ""}
+      <div class="add-actions"><button type="button" class="pill-btn" data-edit-cancel>Cancel</button><button type="submit" class="pill-btn dark">Save</button></div>
+    </form>`;
+  }
+
+  const cardActions = (key, extra = "") => `<div class="feat-actions-row">${extra}<button class="link-btn" data-edit="${esc(key)}">Edit</button><button class="link-btn danger" data-del="${esc(key)}">Remove</button></div>`;
+
   function featureCard(list, f) {
+    if (editing && editing.key === f.key) return editForm(list, f);
     const extra = list === "in_progress"
       ? `<p class="missing"><span>Still missing</span>${esc(f.missing)}</p>`
       : list === "recommended"
         ? `<div class="chips"><span class="chip effort-${f.effort}">${esc(f.effort)} effort</span><span class="chip">${esc(f.type)}</span></div>`
         : "";
-    return `<div class="feat" id="feat-${slug(f.name)}"><b>${esc(f.name)}</b><p>${esc(list === "recommended" ? f.why : f.detail)}</p>${extra}${evidence(f)}</div>`;
+    const edited = f.edited ? `<span class="edited-tag">Edited</span><button class="link-btn" data-reset="${esc(f.key)}" title="Back to Gemini's wording">Undo edits</button>` : "";
+    return `<div class="feat" id="feat-${slug(f.name)}"><b>${esc(f.name)}</b><p>${esc(f[textField(list)])}</p>${extra}${evidence(f)}${cardActions(f.key, edited)}</div>`;
   }
 
   // features you add yourself: Gemini checks the code for them and puts them in the column they belong to
@@ -374,6 +404,7 @@
 
   function mineCard(m) {
     const r = m.result, col = VERDICT_COL[r.status];
+    if (editing && editing.key === `mine:${m.id}`) return editForm(col, r, m);
     const moved = m.column !== col
       ? `<p class="moved">You added this under ${COL_LABEL[m.column]} - ${r.status === "built" ? "it's already built" : r.status === "in_progress" ? "it's only partly there" : "it isn't in your code yet"}.</p>` : "";
     const asked = m.asked.trim().toLowerCase() !== r.name.trim().toLowerCase() ? `<p class="asked">“${esc(m.asked)}”</p>` : "";
@@ -385,7 +416,7 @@
       <p>${esc(r.detail)}</p>
       ${r.missing && r.status !== "built" ? `<p class="missing"><span>Still missing</span>${esc(r.missing)}</p>` : ""}
       ${moved}${evidence(r)}
-      <div class="mine-actions"><button class="link-btn" data-recheck="${m.id}">Re-check</button><button class="link-btn" data-remove="${m.id}">Remove</button><small>checked ${ago(m.at)}${current && m.savedAt < current.savedAt ? " · code changed since" : ""}</small></div>
+      <div class="mine-actions"><button class="link-btn" data-recheck="${m.id}">Re-check</button><button class="link-btn" data-edit="mine:${m.id}">Edit</button><button class="link-btn danger" data-del="mine:${m.id}">Remove</button><small>checked ${ago(m.at)}${current && m.savedAt < current.savedAt ? " · code changed since" : ""}</small></div>
     </div>`;
   }
 
@@ -403,7 +434,7 @@
   let featPending = false;
   function renderFeatures() {
     // don't wipe a feature you're typing; draw again when you leave the box
-    if (document.activeElement && document.activeElement.closest("#featBody textarea")) { featPending = true; return; }
+    if (document.activeElement && document.activeElement.closest("#featBody textarea, #featBody input")) { featPending = true; return; }
     featPending = false;
     const saved = Features.saved();
     const body = $("featBody"), btn = $("featRun");
@@ -416,6 +447,7 @@
     }
     const error = featError ? `<p class="setup-error">Couldn't check your code: ${esc(featError)}</p>` : "";
     const r = saved ? saved.result : {};
+    const view = Features.view();
     const mine = Features.mine();
     if (saved) {
       $("featSummary").textContent = r.summary;
@@ -425,8 +457,12 @@
       $("featMeta").textContent = "";
     }
     const intro = saved ? "" : `<p class="note feat-intro">Gemini reads your whole project once and lists your features here. You can also add your own below.</p>`;
-    body.innerHTML = `${error}${intro}<div class="feat-cols">${FEAT_COLS.map(([key, label, sub]) => {
-      const items = r[key] || [];
+    const undo = lastRemoved ? `<div class="undo-bar"><span>Removed “${esc(lastRemoved.label)}”</span><button class="link-btn" data-undo>Undo</button><button class="x-btn sm" data-undo-close aria-label="Dismiss">×</button></div>` : "";
+    const removed = view.removed.length ? `<details class="removed-list"><summary>${plural(view.removed.length, "removed feature")}</summary>
+      ${view.removed.map((f) => `<div class="rm-row"><span>${esc(f.name)}</span><small>${COL_LABEL[f.col]}</small><button class="link-btn" data-restore="${esc(f.key)}">Bring back</button></div>`).join("")}
+    </details>` : "";
+    body.innerHTML = `${error}${undo}${intro}<div class="feat-cols">${FEAT_COLS.map(([key, label, sub]) => {
+      const items = view[key];
       const own = mine.filter((m) => VERDICT_COL[m.result.status] === key);
       const limit = featOpen[key] ? items.length : 5;
       return `<div class="feat-col col-${key}">
@@ -437,9 +473,63 @@
         ${!items.length && !own.length ? `<p class="note">Nothing here.</p>` : ""}
         ${items.length > limit ? `<button class="link-btn" data-more="${key}">Show all ${items.length}</button>` : ""}
       </div>`;
-    }).join("")}</div>`;
+    }).join("")}</div>${removed}`;
     const open = Object.keys(adding).find((k) => !adding[k].busy && adding[k].focus);
     if (open) { const t = $(`add-${open}`); t.focus(); t.setSelectionRange(t.value.length, t.value.length); adding[open].focus = false; }
+    if (editing && editing.focus) { const t = $("edit-name") || $("edit-text"); if (t) { t.focus(); t.setSelectionRange(t.value.length, t.value.length); } editing.focus = false; }
+  }
+
+  // which card a key points at: Gemini's (column:slug) or yours (mine:id)
+  function findFeature(key) {
+    if (key.startsWith("mine:")) {
+      const m = Features.mine().find((x) => x.id === key.slice(5));
+      return m && { mine: m, list: VERDICT_COL[m.result.status], f: m.result };
+    }
+    const view = Features.view();
+    for (const [list] of FEAT_COLS) { const f = view[list].find((x) => x.key === key); if (f) return { list, f }; }
+    return null;
+  }
+
+  function startEdit(key) {
+    const hit = findFeature(key);
+    if (!hit) return;
+    editing = hit.mine
+      ? { key, text: hit.mine.asked, focus: true }
+      : { key, list: hit.list, name: hit.f.name, text: hit.f[textField(hit.list)] || "", missing: hit.f.missing || "", focus: true };
+    featOpen[hit.list] = true;
+    renderFeatures();
+  }
+
+  function saveEdit() {
+    const e = editing, hit = findFeature(e.key);
+    editing = null;
+    if (!hit) return renderFeatures();
+    if (hit.mine) {
+      if (e.text.trim().length >= 4 && e.text.trim() !== hit.mine.asked) return checkMine(hit.list, e.text.trim(), hit.mine.id);
+      return renderFeatures();
+    }
+    const value = { name: e.name.trim() || hit.f.name, [textField(hit.list)]: e.text.trim() };
+    if (hit.list === "in_progress") value.missing = e.missing.trim();
+    Features.setEdit(e.key, value);
+    renderFeatures();
+  }
+
+  function removeFeature(key) {
+    const hit = findFeature(key);
+    if (!hit) return;
+    if (editing && editing.key === key) editing = null;
+    if (hit.mine) {
+      const entry = hit.mine;
+      Features.removeMine(entry.id);
+      lastRemoved = { label: entry.result.name, undo: () => Features.restoreMine(entry) };
+    } else {
+      const before = hit.f.edited ? { ...hit.f } : null;
+      Features.setEdit(key, { removed: true });
+      // undo brings back your edits too
+      lastRemoved = { label: hit.f.name, undo: () => Features.setEdit(key, before ? { name: before.name, detail: before.detail, why: before.why, missing: before.missing } : null) };
+    }
+    renderFeatures();
+    renderToday(Insights.snapshot());
   }
 
   async function checkMine(key, text, id = null) {
@@ -478,8 +568,14 @@
     if (add) { adding[add.dataset.add] = { text: "", focus: true }; renderFeatures(); return; }
     const cancel = e.target.closest("[data-cancel]");
     if (cancel) { delete adding[cancel.dataset.cancel]; renderFeatures(); return; }
-    const remove = e.target.closest("[data-remove]");
-    if (remove) { Features.removeMine(remove.dataset.remove); renderFeatures(); return; }
+    const act = (sel) => e.target.closest(sel);
+    if (act("[data-edit]")) return startEdit(act("[data-edit]").dataset.edit);
+    if (act("[data-del]")) return removeFeature(act("[data-del]").dataset.del);
+    if (act("[data-edit-cancel]")) { editing = null; return renderFeatures(); }
+    if (act("[data-reset]")) { Features.setEdit(act("[data-reset]").dataset.reset, null); return renderFeatures(); }
+    if (act("[data-restore]")) { Features.setEdit(act("[data-restore]").dataset.restore, null); lastRemoved = null; renderFeatures(); return renderToday(Insights.snapshot()); }
+    if (act("[data-undo]")) { lastRemoved.undo(); lastRemoved = null; renderFeatures(); return renderToday(Insights.snapshot()); }
+    if (act("[data-undo-close]")) { lastRemoved = null; return renderFeatures(); }
     const again = e.target.closest("[data-recheck]");
     if (again) {
       const m = Features.mine().find((x) => x.id === again.dataset.recheck);
@@ -496,8 +592,10 @@
   $("featBody").addEventListener("input", (e) => {
     const form = e.target.closest("[data-form]");
     if (form) adding[form.dataset.form].text = e.target.value;
+    if (e.target.dataset.field && editing) editing[e.target.dataset.field] = e.target.value;
   });
   $("featBody").addEventListener("submit", (e) => {
+    if (e.target.closest("[data-edit-form]")) { e.preventDefault(); document.activeElement.blur(); return saveEdit(); }
     const form = e.target.closest("[data-form]");
     if (!form) return;
     e.preventDefault();
@@ -507,7 +605,8 @@
     checkMine(key, text);
   });
   $("featBody").addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && e.target.closest("[data-form] textarea")) e.target.form.requestSubmit();
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && e.target.closest("[data-form] textarea, [data-edit-form] textarea")) e.target.form.requestSubmit();
+    if (e.key === "Escape" && e.target.closest("[data-edit-form]")) { editing = null; document.activeElement.blur(); renderFeatures(); return; }
     if (e.key === "Escape" && e.target.closest("[data-form]")) { delete adding[e.target.closest("[data-form]").dataset.form]; document.activeElement.blur(); renderFeatures(); }
   });
   $("featBody").addEventListener("focusout", () => setTimeout(() => { if (featPending) renderFeatures(); }, 0));

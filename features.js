@@ -157,13 +157,46 @@ percent: how much of the feature exists (built = 90-100, missing = 0-10). Be hon
     return entry;
   }
 
+  // ---------------------------------------------------------------- your edits to Gemini's list
+  // { "<column>:<slug of the original name>": { removed: true } | { name, detail, why, missing } }
+  // Kept apart from the list, so they still apply after "Check again" finds the same feature.
+
+  const EDITS = "rd.features.edits";
+  const readEdits = () => { try { return JSON.parse(localStorage.getItem(EDITS)) || {}; } catch { return {}; } };
+  const slug = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  const keyOf = (col, f) => `${col}:${slug(f.name)}`;
+
+  function setEdit(key, value) {
+    const all = readEdits();
+    if (value == null) delete all[key]; else all[key] = value;
+    try { localStorage.setItem(EDITS, JSON.stringify(all)); } catch {}
+  }
+
+  // Gemini's lists with your edits applied and removed ones left out; each item knows its key
+  function view() {
+    const r = read()?.result || {};
+    const edits = readEdits();
+    const out = { built: [], in_progress: [], recommended: [], removed: [] };
+    for (const col of ["built", "in_progress", "recommended"]) {
+      for (const f of r[col] || []) {
+        const key = keyOf(col, f), e = edits[key];
+        if (e?.removed) { out.removed.push({ ...f, key, col }); continue; }
+        out[col].push(e ? { ...f, ...e, key, edited: true } : { ...f, key });
+      }
+    }
+    return out;
+  }
+
   let running = null;
 
   return {
+    view,
+    setEdit,
     saved: read,
     mine: readMine,
     checkOne,
     removeMine(id) { writeMine(readMine().filter((m) => m.id !== id)); },
+    restoreMine(entry) { writeMine([entry, ...readMine().filter((m) => m.id !== entry.id)]); },
 
     // the saved result is from older code
     stale(project) { const s = read(); return !!(s && project && s.savedAt < project.savedAt); },

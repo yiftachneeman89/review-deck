@@ -172,8 +172,7 @@ const Insights = (() => {
       const id = sm.unreachableIds?.[0];
       out.push({ key: "unreach", tone: "todo", text: sm.unreachable.length === 1 ? `Nothing leads to ${sm.unreachable[0]}` : `${sm.unreachable.length} screens nothing leads to`, href: id ? `/screen-map/?screen=${encodeURIComponent(id)}` : "/screen-map/" });
     }
-    const feats = read("rd.features", null);
-    const wip = feats?.result?.in_progress?.length;
+    const wip = Features.view().in_progress.length + Features.mine().filter((m) => m.result.status === "in_progress").length;
     if (wip) out.push({ key: "wip", tone: "info", text: `${plural(wip, "feature")} in progress`, href: "#features" });
     if (!out.some((i) => i.tone === "todo" || i.tone === "bad")) out.push({ key: "clear", tone: "good", text: "Nothing else waiting - nice" });
     return out;
