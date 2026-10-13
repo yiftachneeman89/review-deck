@@ -10,7 +10,7 @@ Three tools for reviewing your own project, in one place, and installable as a d
 | [**Screen Map**](https://yiftachneeman89.github.io/screen-map/) | Your Android app as a flow chart. The card shows how many screens and connections your app has, where it starts and how many buttons it has. |
 | [**Design Critic**](https://yiftachneeman89.github.io/design-critic/) | A design review that doesn't go easy on you. The card shows your grade and score, open blockers, major and minor issues, and fix progress. |
 
-All the sites live on the same GitHub Pages address, so they share the browser's storage. Nothing is uploaded.
+All the sites live on the same GitHub Pages address, so they share the browser's storage. Your project is kept in that storage, but it does not stay only there: Review Deck sends your code to Google Gemini, with your own key, to list your features, explain code and make puzzles. This happens automatically after you sign in and each time you open the hub (unless a check from the last 6 hours exists). Code Check sends quiz snippets and your answers to Gemini too. Your key goes only to Google.
 
 ## Install it as an app
 

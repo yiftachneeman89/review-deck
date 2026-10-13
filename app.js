@@ -859,7 +859,7 @@
     picked = null;
     $("setupDrop").classList.remove("ready");
     $("dropStatus").className = "drop-status";
-    $("dropStatus").textContent = "Nothing is uploaded. The files are read and kept right here in your browser.";
+    $("dropStatus").textContent = "Your files are kept in this browser. Review Deck sends your code to Google Gemini, with your own key, to list your features, explain code and make puzzles. This happens automatically after you sign in and when you open the hub.";
     $("setupError").hidden = true;
     $("setupTitle").textContent = m === "newcode" ? "New code" : "Sign in";
     $("setupLead").textContent = m === "newcode"
