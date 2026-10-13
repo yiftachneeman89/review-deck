@@ -8,15 +8,13 @@
 
   // ---------------------------------------------------------------- white / black mode
 
-  function setTheme(theme) {
-    if (theme === "dark") document.documentElement.dataset.theme = "dark";
-    else delete document.documentElement.dataset.theme;
-    try { localStorage.setItem("rd.theme", theme); } catch {}
-    document.querySelector('meta[name="theme-color"]').content = theme === "dark" ? "#0e0e0f" : "#f4f3ef";
+  // theme.js applies it here and in the three tools (they all read rd.theme)
+  function showTheme(theme) {
     for (const b of document.querySelectorAll("[data-theme-choice]")) b.classList.toggle("on", b.dataset.themeChoice === theme);
   }
-  for (const b of document.querySelectorAll("[data-theme-choice]")) b.onclick = () => setTheme(b.dataset.themeChoice);
-  setTheme(document.documentElement.dataset.theme === "dark" ? "dark" : "light");
+  for (const b of document.querySelectorAll("[data-theme-choice]")) b.onclick = () => RDTheme.set(b.dataset.themeChoice);
+  document.addEventListener("rd-theme", (e) => showTheme(e.detail));
+  showTheme(RDTheme.get());
 
   // ---------------------------------------------------------------- one line about each tool
 
