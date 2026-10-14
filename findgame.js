@@ -35,9 +35,13 @@ const FindGame = (() => {
 
   const SYSTEM = `You make a "find it in the code" puzzle for the developer who wrote this app. You get one piece of their code with line numbers.
 Pick ONE specific, interesting thing these lines do and write:
-- clue: a short task (max 18 words) starting with "Find where" or "Find the code that", described as behaviour - what the app does or what happens - e.g. "Find where the app remembers which lesson you finished last". NEVER mention class, method, variable, file or library names, and never quote code.
+- clue: a short task (max 20 words) starting with "Find where" or "Find the code that", described as behaviour - what the app does or what happens - e.g. "Find where the app remembers which lesson you finished last". NEVER mention class, method, variable, file or library names, and never quote code.
+  Be SPECIFIC: name the exact thing the lines deal with, in plain words - the particular option, item, screen, value, message or case (read it from the strings, constants, conditions and values in the code), not its general category. The clue should fit only these lines, not other similar code in the app.
+  Bad: "Find where your code checks gear options". Good: "Find where your code checks electric guitar options".
+  Bad: "Find where the app saves a setting". Good: "Find where the app saves whether left-handed mode is on".
+  Avoid vague words like "options", "settings", "data", "items", "info" or "something" unless you say exactly which one.
 - focus_start, focus_end: the line numbers (as given) of the smallest block, 2 to 15 lines, that does exactly that.
-- hint: one sentence that narrows it down without giving it away (which screen, or what happens just before or after).
+- hint: one specific sentence that narrows it down without giving it away (which screen, or what happens just before or after).
 - explain: one or two sentences, for after the answer is shown, on how those lines do it. Here you may name the code.
 usable: false when the lines are boilerplate with nothing worth finding.`;
 
