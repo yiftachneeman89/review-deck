@@ -81,7 +81,7 @@ const DeckStore = (() => {
     return out;
   }
 
-  return {
+  const api = {
     HOME,
     keepForever,
     canLink: typeof window.showDirectoryPicker === "function",
@@ -128,11 +128,71 @@ const DeckStore = (() => {
       return items && items.length ? { project, items } : null;
     },
 
-    // tools call this: the saved project, or off to Review Deck's sign-in
+    // A tool's own check of the linked folder: saves new code right away (flagged so Review Deck
+    // also refreshes Code Check's copy next time it opens). -> the rescan state
+    async refresh(ask = false) {
+      const r = await this.rescan(ask);
+      if (r.state === "changed") {
+        const old = await get("project");
+        const project = await this.save(old.name, r.items, r.dir);
+        await put([["project", { ...project, toolSaved: true }]]);
+      }
+      return r.state;
+    },
+
+    // tools call this: the saved project (re-read from the linked folder first), or off to Review Deck's sign-in
     async require() {
+      const state = await this.refresh().catch(() => "none");
       const saved = await this.load();
       if (!saved) { location.replace(HOME); return new Promise(() => {}); }
+      watch(this, state, saved.project);
       return saved;
     },
   };
+
+  // In a tool: pick up new code when you come back to the tab, and say so when the folder
+  // can't be read (not linked, or the browser wants a click first) instead of showing old code silently.
+  function watch(store, state, project) {
+    let busy = false;
+    const check = async (ask) => {
+      if (busy) return;
+      busy = true;
+      try {
+        const s = await store.refresh(ask);
+        if (s === "changed") return location.reload();
+        bar(s, ask);
+      } catch (e) {
+        console.warn("Review Deck: couldn't read your folder", e);
+      } finally { busy = false; }
+    };
+    const bar = (s, asked) => {
+      let el = document.getElementById("rd-stale");
+      if (s === "same" || s === "changed" || (s === "none" && project.linked)) { if (el) el.remove(); return; }
+      if (!el) {
+        el = document.createElement("div");
+        el.id = "rd-stale";
+        el.style.cssText = "position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:9999;max-width:calc(100% - 32px);" +
+          "display:flex;gap:12px;align-items:center;padding:10px 14px;border-radius:10px;background:#1d1b19;color:#f6f3ee;" +
+          "font:14px/1.35 system-ui,sans-serif;box-shadow:0 6px 24px rgba(0,0,0,.25)";
+        document.body.appendChild(el);
+      }
+      const ago = Math.max(1, Math.round((Date.now() - project.savedAt) / 60000));
+      const when = ago < 60 ? `${ago} min` : ago < 2880 ? `${Math.round(ago / 60)} h` : `${Math.round(ago / 1440)} days`;
+      const btn = "border:0;border-radius:8px;padding:6px 12px;background:#d33a2c;color:#fff;font:inherit;cursor:pointer;white-space:nowrap";
+      if (s === "ask") {
+        el.innerHTML = `<span>Showing your code from ${when} ago. ${asked ? "Choose “Allow on every visit” to keep it current." : "Allow access to your project folder to load your latest changes."}</span><button style="${btn}">Load latest code</button>`;
+        el.querySelector("button").onclick = () => check(true);
+      } else {
+        el.innerHTML = `<span>Showing your code from ${when} ago. Your folder isn't linked, so new changes don't show up.</span><a style="${btn};text-decoration:none" href="${HOME}">Link folder on Review Deck</a>`;
+      }
+    };
+    if (!canLinkHere()) return;
+    bar(state, false);
+    document.addEventListener("visibilitychange", () => { if (!document.hidden) check(false); });
+    window.addEventListener("focus", () => check(false));
+  }
+
+  function canLinkHere() { return typeof window.showDirectoryPicker === "function"; }
+
+  return api;
 })();

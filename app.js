@@ -1010,7 +1010,9 @@
     try {
       const r = await DeckStore.rescan(ask);
       syncButton(r.state);
-      if (r.state === "changed") await applyCode(r.items, r.dir);
+      // "same" but a tool already saved the new code: Code Check's copy still needs it
+      const toolSaved = r.state === "same" && (await DeckStore.project())?.toolSaved;
+      if (r.state === "changed" || toolSaved) await applyCode(r.items, r.dir);
     } catch (e) {
       console.warn("Review Deck: couldn't read your folder", e);
     } finally {
