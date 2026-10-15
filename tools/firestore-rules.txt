@@ -1,0 +1,29 @@
+    // ---- Review Deck (yiftachneeman89.github.io/review-deck) ----------------------------------
+    // Paste this INSIDE your existing  match /databases/{database}/documents { ... }  block,
+    // next to the IntuiTeacher Guitar rules (don't replace them). It only covers the
+    // "review deck" collection.
+    match /{coll}/{owner} {
+      // one doc per account: its owner, and the phones linked to it
+      allow read: if coll == 'review deck' && request.auth != null
+        && (request.auth.uid == owner || request.auth.uid in resource.data.members);
+      allow create: if coll == 'review deck' && request.auth != null && request.auth.uid == owner
+        && request.resource.data.owner == owner && request.resource.data.members == [];
+      allow update: if coll == 'review deck' && request.auth != null
+        && (request.auth.uid == owner
+            || (request.auth.uid in resource.data.members
+                && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['owner', 'members'])));
+      allow delete: if coll == 'review deck' && request.auth != null && request.auth.uid == owner;
+    }
+    match /{coll}/{owner}/{sub}/{part} {
+      // saved settings and project files: the owner and linked phones
+      allow read, write: if coll == 'review deck' && sub in ['state', 'project'] && request.auth != null
+        && (request.auth.uid == owner
+            || request.auth.uid in get(/databases/$(database)/documents/$(coll)/$(owner)).data.members);
+      // "Open on phone" codes: the owner makes them; a signed-in phone claims a fresh one once
+      allow read, create, delete: if coll == 'review deck' && sub == 'links' && request.auth != null && request.auth.uid == owner;
+      allow update: if coll == 'review deck' && sub == 'links' && request.auth != null
+        && resource.data.claimedBy == null
+        && request.time < resource.data.created + duration.value(10, 'm')
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['claimedBy'])
+        && request.resource.data.claimedBy == request.auth.uid;
+    }

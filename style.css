@@ -254,7 +254,7 @@ a.pill-btn { text-decoration: none; }
 .ph-text { margin: 0; font-size: 14px; color: var(--ink-2); overflow-wrap: anywhere; }
 .ph-pass { display: grid; gap: 12px; }
 
-.acct-toast { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 50; max-width: calc(100% - 32px);
+.acct-toast { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 50; width: max-content; max-width: min(520px, calc(100% - 32px));
   padding: 11px 16px; border-radius: 11px; background: var(--ink); color: var(--on-ink); font-size: 14px; box-shadow: 0 8px 26px rgba(0,0,0,.25); }
 
 @media (max-width: 600px) {

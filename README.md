@@ -30,6 +30,6 @@ The home screen has a **White / Black** switch.
 
 **Log in** / **Sign up** (`account.html`) saves your project, progress, settings and Gemini key to an account, so they're safe and other devices get them. Anyone who used Review Deck before gets a one-time "Want to sign up to save your data?" pop-up (asked again after a week if you choose *Not now*). While you're signed in, Review Deck and the three tools save on their own; each device keeps what it changed and takes the rest from the account.
 
-**Open on phone** on the home screen shows a QR code. Scan it and Review Deck opens on the phone already signed in, with your project and progress. Each code works once, for 10 minutes. The phone can't link a project folder, so new code reaches it through the account after Review Deck on your computer picks it up.
+**Open on phone** on the home screen shows a QR code. Scan it and Review Deck opens on the phone already signed in, with your project and progress. Each code works once, for 10 minutes, and the phone shows up as linked to your account. The phone can't link a project folder, so new code reaches it through the account after Review Deck on your computer picks it up.
 
-Accounts run on a free Supabase project; see `tools/account-setup.md`. Your code and key are then stored there too, readable only by your account.
+Accounts live in the IntuiTeacher Guitar Firebase project (Firestore collection `review deck`); see `tools/account-setup.md`. Your code and key are then stored there too, readable only by your account and the phones you linked.

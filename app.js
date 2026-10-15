@@ -1046,7 +1046,7 @@
 
   function accountButtons() {
     const on = Account.ready;
-    $("phoneBtn").hidden = !on;
+    $("phoneBtn").hidden = !on || Account.isPhone();
     $("acctBtn").hidden = !on;
     $("haveAcct").hidden = !on || Account.signedIn();
     const email = Account.email();
@@ -1096,7 +1096,8 @@
     return qrLib;
   }
 
-  async function showPhone(password) {
+  let stopWatch = null;
+  async function showPhone() {
     const body = $("phBody");
     if (!$("phoneSheet").open) $("phoneSheet").showModal();
     if (!Account.signedIn()) {
@@ -1109,31 +1110,27 @@
     $("phTitle").textContent = "Scan with your phone";
     body.innerHTML = busy("Saving your latest data to your account…");
     try {
-      const [url, qrcode] = await Promise.all([Account.phoneLink(password), loadQr()]);
+      const [link, qrcode] = await Promise.all([Account.phoneLink(), loadQr()]);
       const qr = qrcode(0, "M");
-      qr.addData(url);
+      qr.addData(link.url);
       qr.make();
       body.innerHTML = `
         <div class="ph-qr">${qr.createSvgTag({ cellSize: 6, margin: 3, scalable: true })}</div>
         <p class="ph-text">Point your phone's camera at the code and open the link. Review Deck opens there signed in as <b>${esc(Account.email())}</b>, with your project, progress and Gemini key.</p>
         <p class="note">The code works once, for ${Account.LINK_MINUTES} minutes. For another phone, open this again.</p>`;
+      stopWatch?.();
+      stopWatch = link.watch(() => {
+        $("phTitle").textContent = "Your phone is connected";
+        body.innerHTML = `<p class="ph-text">✓ Review Deck is opening on your phone with your data. From now on, what you do on either one is saved to your account.</p>
+          <div class="ask-actions"><button class="pill-btn dark" data-close>Done</button></div>`;
+      });
     } catch (e) {
-      if (e.code === "password") {
-        body.innerHTML = `
-          <form class="ph-pass" id="phPass">
-            <p class="ph-text">Your last phone code was used. Enter your password to make a new one.</p>
-            <input type="password" class="field" id="phPw" autocomplete="current-password" placeholder="Password" required>
-            <div class="ask-actions"><button class="pill-btn dark" type="submit">Make the code</button></div>
-          </form>`;
-        $("phPw").focus();
-        $("phPass").onsubmit = (ev) => { ev.preventDefault(); showPhone($("phPw").value); };
-        return;
-      }
       if (e.code === "signin") { accountButtons(); return showPhone(); }
       body.innerHTML = `<p class="setup-error">${esc(e.message || e)}</p><div class="ask-actions"><button class="pill-btn" id="phRetry">Try again</button></div>`;
-      $("phRetry").onclick = () => showPhone(password);
+      $("phRetry").onclick = () => showPhone();
     }
   }
+  $("phoneSheet").addEventListener("close", () => { stopWatch?.(); stopWatch = null; });
   $("phoneBtn").onclick = () => showPhone();
 
   // ---- arriving on the phone from the QR code
@@ -1153,7 +1150,7 @@
 
   async function accountSync() {
     if (!Account.signedIn()) return;
-    try { await Account.sync(); } catch (e) { console.warn("Review Deck account: couldn't save", e); }
+    try { await Account.sync(); } catch (e) { console.warn("Review Deck account: couldn't save", Account.friendly(e), e); }
     accountButtons();
   }
 

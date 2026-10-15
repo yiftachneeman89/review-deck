@@ -1,21 +1,33 @@
-// Review Deck account: your project and progress saved to your account, so another device
-// (your phone, through "Open on phone") opens with the same data.
-// Loaded by Review Deck's pages and, once you're signed in, by the three tools (see shared.js).
+// Review Deck account: your project and progress saved to your account (Firebase, collection
+// "review deck"), so another device - your phone, through "Open on phone" - opens with the same data.
+// Loaded by Review Deck's pages and, once you're signed in, by the three tools (see account-hook.js).
 //
-// What's saved: every rd. / cc. / sm. / dc. setting in this browser (progress, quiz rounds, caches,
-// your Gemini key) as one row, and the project files as one packed file. Each device merges:
-// a value you changed here since the last save wins, anything else takes the account's copy.
+// review deck/{owner}              owner, email, members (linked phones), state_at, stateParts, project_at, projectParts
+// review deck/{owner}/state/{i}    every rd. / cc. / sm. / dc. setting (progress, quiz, caches, Gemini key) as JSON, in parts
+// review deck/{owner}/project/{i}  the project files, packed and gzipped, in parts (a Firestore doc holds at most 1 MB)
+// review deck/{owner}/links/{id}   "Open on phone" codes: claimed once by the phone within 10 minutes
+//
+// Each device merges: a value you changed here since the last save wins, anything else takes the account's copy.
 
 const Account = (() => {
   const cfg = window.RD_ACCOUNT || {};
-  const ready = !!(cfg.url && cfg.anonKey && window.supabase);
+  const ready = !!(cfg.apiKey && cfg.projectId && window.firebase);
+  const COLL = "review deck";
   const HOME = "/review-deck/";
   const onHub = location.pathname.startsWith(HOME);
   const SYNCED = /^(rd|cc|sm|dc)\./;
   const OWN = /^rd\.acct\./;           // this device's account bookkeeping, never synced
-  const LINK_MINUTES = 10;             // a phone code works once, for this long
+  const LINK_MINUTES = 10;
+  const STATE_PART = 250000;           // characters per state part (stays under 1 MB even as UTF-8)
+  const PROJECT_PART = 900000;         // bytes per project part
 
-  const sb = ready ? window.supabase.createClient(cfg.url, cfg.anonKey) : null;
+  let auth = null, db = null, authReady = null;
+  if (ready) {
+    const app = firebase.apps.length ? firebase.app() : firebase.initializeApp(Object.fromEntries(Object.entries(cfg).filter(([, v]) => v)));
+    auth = app.auth();
+    db = app.firestore();
+    authReady = new Promise((ok) => { const off = auth.onAuthStateChanged(() => { off(); ok(); }); });
+  }
 
   // ---------------------------------------------------------------- this device's bookkeeping
 
@@ -25,7 +37,7 @@ const Account = (() => {
     json(k, d) { try { return JSON.parse(this.get(k)) ?? d; } catch { return d; } },
     setJson(k, v) { this.set(k, JSON.stringify(v)); },
     clear() {
-      try { Object.keys(localStorage).filter((k) => OWN.test(k)).forEach((k) => localStorage.removeItem(k)); } catch {}
+      try { Object.keys(localStorage).filter((k) => OWN.test(k) && k !== "rd.acct.nag").forEach((k) => localStorage.removeItem(k)); } catch {}
     },
   };
 
@@ -45,6 +57,10 @@ const Account = (() => {
   }
 
   const hashes = (state) => Object.fromEntries(Object.entries(state).map(([k, v]) => [k, hash(v)]));
+  const sameState = (a, b) => {
+    const ka = Object.keys(a), kb = Object.keys(b);
+    return ka.length === kb.length && ka.every((k) => a[k] === b[k]);
+  };
 
   // ---------------------------------------------------------------- the project as one file
 
@@ -55,11 +71,11 @@ const Account = (() => {
     const len = new Uint8Array(4);
     new DataView(len.buffer).setUint32(0, head.length);
     const raw = new Blob([len, head, ...items.map(({ file }) => file)]);
-    return new Response(raw.stream().pipeThrough(new CompressionStream("gzip"))).blob();
+    return new Uint8Array(await new Response(raw.stream().pipeThrough(new CompressionStream("gzip"))).arrayBuffer());
   }
 
-  async function unpack(blob) {
-    const buf = await new Response(blob.stream().pipeThrough(new DecompressionStream("gzip"))).arrayBuffer();
+  async function unpack(bytes) {
+    const buf = await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"))).arrayBuffer();
     const len = new DataView(buf).getUint32(0);
     const head = JSON.parse(new TextDecoder().decode(new Uint8Array(buf, 4, len)));
     let at = 4 + len;
@@ -71,67 +87,82 @@ const Account = (() => {
     return { project: head.project, items };
   }
 
-  const projectPath = (uid) => `${uid}/project.bin`;
+  // ---------------------------------------------------------------- big values as several docs
+
+  const deckRef = (owner) => db.collection(COLL).doc(owner);
+
+  async function writeParts(owner, sub, parts, oldCount = 0) {
+    const col = deckRef(owner).collection(sub);
+    for (let i = 0; i < Math.max(parts.length, oldCount); i += 8) {
+      const batch = db.batch();
+      for (let j = i; j < Math.min(i + 8, Math.max(parts.length, oldCount)); j++) {
+        if (j < parts.length) batch.set(col.doc(String(j)), { data: parts[j] });
+        else batch.delete(col.doc(String(j)));
+      }
+      await batch.commit();
+    }
+  }
+
+  async function readParts(owner, sub, count) {
+    const col = deckRef(owner).collection(sub);
+    const snaps = await Promise.all(Array.from({ length: count }, (_, i) => col.doc(String(i)).get()));
+    return snaps.map((s) => s.exists ? s.data().data : null);
+  }
+
+  function split(s, n) { const out = []; for (let i = 0; i < s.length; i += n) out.push(s.slice(i, i + n)); return out.length ? out : [""]; }
 
   // ---------------------------------------------------------------- who's signed in
 
   async function user() {
     if (!ready) return null;
-    const { data, error } = await sb.auth.getSession();
-    if (error) throw error;                            // e.g. offline: still signed in, just can't check
-    const u = data.session?.user || null;
-    if (!u && local.get("uid")) local.clear();         // signed out elsewhere, or the session ran out
-    if (u && local.get("uid") !== u.id) remember(u);
+    await authReady;
+    const u = auth.currentUser;
+    if (!u && local.get("uid")) local.clear();         // signed out elsewhere
+    if (u && local.get("uid") !== u.uid) remember(u);
     return u;
   }
 
-  function remember(u) {
-    if (local.get("uid") !== u.id) {                   // another account than last time: start the merge fresh
-      local.clear();
-      local.set("uid", u.id);
+  function remember(u, owner = u.uid, email = u.email) {
+    if (local.get("uid") !== u.uid || (local.get("owner") || u.uid) !== owner) {
+      local.clear();                                    // another account than last time: start the merge fresh
+      local.set("uid", u.uid);
     }
-    local.set("email", u.email || "");
-  }
-
-  // a second, separate session kept for "Open on phone" (your password is never stored)
-  async function mintSpare(email, password) {
-    const c = window.supabase.createClient(cfg.url, cfg.anonKey, {
-      auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false, storageKey: "rd-spare" },
-    });
-    const { data, error } = await c.auth.signInWithPassword({ email, password });
-    if (error) throw error;
-    local.setJson("phone", { token: data.session.refresh_token });
+    local.set("owner", owner);
+    if (email) local.set("email", email);
   }
 
   const friendly = (e) => {
-    const m = String(e?.message || e);
-    if (/invalid login credentials/i.test(m)) return "That email and password don't match an account.";
-    if (/already registered|already exists/i.test(m)) return "There's already an account with that email. Log in instead.";
-    if (/email not confirmed/i.test(m)) return "Confirm your email first - open the link we sent you, then log in.";
-    if (/password should be at least/i.test(m)) return "Use a password of at least 6 characters.";
-    if (/failed to fetch|network/i.test(m)) return "Couldn't reach the account server. Check your connection and try again.";
+    const c = e?.code || "", m = String(e?.message || e);
+    if (/wrong-password|invalid-credential|user-not-found|invalid-login/.test(c)) return "That email and password don't match an account.";
+    if (c.includes("email-already-in-use")) return "There's already an account with that email (maybe from IntuiTeacher Guitar). Log in with its password instead.";
+    if (c.includes("weak-password")) return "Use a password of at least 6 characters.";
+    if (c.includes("invalid-email")) return "That doesn't look like an email address.";
+    if (c.includes("too-many-requests")) return "Too many tries. Wait a minute and try again.";
+    if (c.includes("operation-not-allowed") || c.includes("admin-restricted-operation")) return "This sign-in method is switched off in Firebase (Authentication → Sign-in method).";
+    if (c.includes("permission-denied")) return "Firebase refused it. Check that the Review Deck rules are added (tools/firestore-rules.txt).";
+    if (c.includes("network-request-failed") || c.includes("unavailable")) return "Couldn't reach the account server. Check your connection and try again.";
+    if (/api-key|API key/i.test(c + m)) return "Firebase didn't accept the web key in account-config.js.";
     return m;
   };
 
   async function signUp(email, password) {
-    const { data, error } = await sb.auth.signUp({ email, password, options: { emailRedirectTo: location.origin + HOME + "account.html" } });
-    if (error) throw new Error(friendly(error));
-    if (!data.session) return { confirm: true };     // the server wants the email confirmed first
-    remember(data.user);
-    await mintSpare(email, password).catch(() => {});
-    return { confirm: false, result: await sync({ apply: true }) };
+    try {
+      const { user: u } = await auth.createUserWithEmailAndPassword(email, password);
+      remember(u);
+    } catch (e) { throw new Error(friendly(e)); }
+    return { confirm: false, result: await sync({ apply: true }).catch((e) => { throw new Error(friendly(e)); }) };
   }
 
   async function logIn(email, password) {
-    const { data, error } = await sb.auth.signInWithPassword({ email, password });
-    if (error) throw new Error(friendly(error));
-    remember(data.user);
-    await mintSpare(email, password).catch(() => {});
-    return sync({ apply: true });
+    try {
+      const { user: u } = await auth.signInWithEmailAndPassword(email, password);
+      remember(u);
+    } catch (e) { throw new Error(friendly(e)); }
+    return sync({ apply: true }).catch((e) => { throw new Error(friendly(e)); });
   }
 
   async function logOut() {
-    if (ready) await sb.auth.signOut({ scope: "local" }).catch(() => {});
+    if (ready) await auth.signOut().catch(() => {});
     local.clear();
   }
 
@@ -150,26 +181,24 @@ const Account = (() => {
     return running;
   }
 
-  const sameState = (a, b) => {
-    const ka = Object.keys(a), kb = Object.keys(b);
-    return ka.length === kb.length && ka.every((k) => a[k] === b[k]);
-  };
-
   async function doSync({ apply = onHub } = {}) {
     const u = await user();
     if (!u) return null;
-    const uid = u.id;
-    const { data: head, error } = await sb.from("decks").select("state_at, project_at").eq("user_id", uid).maybeSingle();
-    if (error) throw error;
+    const owner = local.get("owner") || u.uid;
+    const isOwner = owner === u.uid;
+    const ref = deckRef(owner);
+    const snap = await ref.get();
+    const head = snap.exists ? snap.data() : null;
+    if (!head && !isOwner) throw new Error("This phone isn't linked to an account any more. Use “Open on phone” on your computer again.");
+    if (isOwner) await takeClaims(ref);
 
     // ---- settings and progress
     const base = local.json("base", {});
     const mine = snapshot();
     let theirs = null;
     if (head && head.state_at > Number(local.get("stateAt") || 0)) {
-      const { data, error: e2 } = await sb.from("decks").select("state, state_at").eq("user_id", uid).single();
-      if (e2) throw e2;
-      theirs = data.state || {};
+      const parts = await readParts(owner, "state", head.stateParts || 0);
+      theirs = parts.includes(null) ? null : JSON.parse(parts.join("") || "{}");
     }
     const merged = { ...mine };
     const newBase = { ...base };
@@ -194,12 +223,15 @@ const Account = (() => {
     const push = !head || !sameState(hashes(merged), known);
     const now = Date.now();
     if (push) {
-      const { error: e3 } = await sb.from("decks").upsert({ user_id: uid, state: merged, state_at: now, project_at: head?.project_at || 0 });
-      if (e3) throw e3;
+      const parts = split(JSON.stringify(merged), STATE_PART);
+      await writeParts(owner, "state", parts, head?.stateParts || 0);
+      if (!head) await ref.set({ owner, email: u.email || "", members: [], state_at: now, stateParts: parts.length, project_at: 0, projectParts: 0 });
+      else await ref.update({ state_at: now, stateParts: parts.length });
     }
     local.setJson("base", newBase);
     // with changes left for Review Deck to apply, it has to fetch the account's copy again next time
     if (!skipped) local.set("stateAt", String(push ? now : head?.state_at || 0));
+    if (head?.email && !u.email) local.set("email", head.email);
 
     // ---- the project files (only Review Deck moves these; a folder-linked device always wins)
     let adopted = false, uploaded = false;
@@ -209,19 +241,24 @@ const Account = (() => {
       if (proj && proj.savedAt > cloudAt) {
         const saved = await DeckStore.load();
         if (saved) {
-          const blob = await pack(saved.project, saved.items);
-          const { error: e4 } = await sb.storage.from("projects").upload(projectPath(uid), blob, { upsert: true, contentType: "application/octet-stream" });
-          if (e4) throw e4;
-          const { error: e5 } = await sb.from("decks").update({ project_at: proj.savedAt }).eq("user_id", uid);
-          if (e5) throw e5;
+          const bytes = await pack(saved.project, saved.items);
+          const parts = [];
+          for (let i = 0; i < bytes.length; i += PROJECT_PART) parts.push(firebase.firestore.Blob.fromUint8Array(bytes.subarray(i, i + PROJECT_PART)));
+          await writeParts(owner, "project", parts, head?.projectParts || 0);
+          await ref.update({ project_at: proj.savedAt, projectParts: parts.length });
           uploaded = true;
         }
-      } else if (cloudAt > (proj?.savedAt || 0) && !proj?.linked) {
-        const { data: blob, error: e6 } = await sb.storage.from("projects").download(projectPath(uid));
-        if (e6) throw e6;
-        const got = await unpack(blob);
-        await DeckStore.adopt(got.project, got.items);
-        adopted = true;
+      } else if (cloudAt > (proj?.savedAt || 0) && !proj?.linked && head.projectParts) {
+        const parts = await readParts(owner, "project", head.projectParts);
+        if (!parts.includes(null)) {
+          const chunks = parts.map((b) => b.toUint8Array());
+          const bytes = new Uint8Array(chunks.reduce((n, c) => n + c.length, 0));
+          let at = 0;
+          for (const c of chunks) { bytes.set(c, at); at += c.length; }
+          const got = await unpack(bytes);
+          await DeckStore.adopt(got.project, got.items);
+          adopted = true;
+        }
       }
     }
 
@@ -230,46 +267,70 @@ const Account = (() => {
   }
 
   // ---------------------------------------------------------------- open on phone
+  // The computer makes a one-time code; the phone signs in anonymously and claims it; the computer
+  // then adds the phone to the account's members, which lets it read and save the same data.
 
-  // -> the link for the QR code. Throws { code: "signin" } or { code: "password" } when it needs that first.
-  async function phoneLink(password) {
-    const u = await user();
-    if (!u) throw Object.assign(new Error("Sign in first."), { code: "signin" });
-    await sync();                                         // the phone gets what you see now
-    let spare = local.json("phone", null);
-    if (spare?.linkId) {
-      const { data } = await sb.from("phone_links").select("id, created_at").eq("id", spare.linkId).maybeSingle();
-      if (!data) spare = null;                            // a phone used it: that session is the phone's now
-      else if (Date.now() - new Date(data.created_at).getTime() < (LINK_MINUTES - 1) * 60000) return linkUrl(spare.linkId);
-      else { await sb.from("phone_links").delete().eq("id", spare.linkId); delete spare.linkId; }
-    }
-    if (!spare?.token) {
-      if (!password) throw Object.assign(new Error("Enter your password to make a phone link."), { code: "password" });
-      try { await mintSpare(u.email, password); } catch (e) { throw new Error(friendly(e)); }
-      spare = local.json("phone", null);
-    }
-    const id = [...crypto.getRandomValues(new Uint8Array(18))].map((b) => b.toString(16).padStart(2, "0")).join("");
-    const { error } = await sb.from("phone_links").insert({ id, user_id: u.id, token: spare.token });
-    if (error) throw error;
-    local.setJson("phone", { ...spare, linkId: id });
-    return linkUrl(id);
+  async function claimOne(ref, linkDoc) {
+    const { claimedBy } = linkDoc.data();
+    if (claimedBy) await ref.update({ members: firebase.firestore.FieldValue.arrayUnion(claimedBy) });
+    await linkDoc.ref.delete();
   }
 
-  const linkUrl = (id) => `${location.origin}${HOME}#phone=${id}`;
+  // claimed codes the computer hasn't seen yet (the QR window was closed early), and old unused ones
+  async function takeClaims(ref) {
+    const links = await ref.collection("links").get();
+    for (const d of links.docs) {
+      const { claimedBy, created } = d.data();
+      if (claimedBy || (created && Date.now() - created.toMillis() > 86400000)) await claimOne(ref, d);
+    }
+  }
+
+  // -> { url, watch(onPhone) -> stop }. Throws { code: "signin" } when nobody is signed in.
+  async function phoneLink() {
+    const u = await user();
+    if (!u) throw Object.assign(new Error("Sign in first."), { code: "signin" });
+    if (u.isAnonymous) throw new Error("Make phone codes on a computer where you logged in with your email.");
+    await sync();                                         // the phone gets what you see now
+    const ref = deckRef(u.uid);
+    const id = [...crypto.getRandomValues(new Uint8Array(18))].map((b) => b.toString(16).padStart(2, "0")).join("");
+    const link = ref.collection("links").doc(id);
+    try { await link.set({ created: firebase.firestore.FieldValue.serverTimestamp(), claimedBy: null }); }
+    catch (e) { throw new Error(friendly(e)); }
+    return {
+      url: `${location.origin}${HOME}#phone=${u.uid}.${id}`,
+      watch(onPhone) {
+        return link.onSnapshot(async (s) => {
+          if (s.exists && s.data().claimedBy) { await claimOne(ref, s).catch(() => {}); onPhone(); }
+        }, () => {});
+      },
+    };
+  }
 
   // on the phone: the code from the QR -> signed in, with your data
   async function takeLink() {
-    const m = location.hash.match(/^#phone=([0-9a-f]{20,})$/);
+    const m = location.hash.match(/^#phone=([A-Za-z0-9]+)\.([0-9a-f]{20,})$/);
     if (!m || !ready) return null;
     history.replaceState(null, "", location.pathname + location.search);
-    const { data: token, error } = await sb.rpc("take_phone_link", { link_id: m[1] });
-    if (error) throw new Error(friendly(error));
-    if (!token) throw new Error(`This code was used already or is older than ${LINK_MINUTES} minutes. Press “Open on phone” on your computer for a new one.`);
-    await sb.auth.signOut({ scope: "local" }).catch(() => {});
-    const { data, error: e2 } = await sb.auth.refreshSession({ refresh_token: token });
-    if (e2 || !data.session) throw new Error("That phone code didn't work. Press “Open on phone” on your computer for a new one.");
-    remember(data.session.user);
-    return sync({ apply: true });
+    const [, owner, id] = m;
+    const expired = `This code was used already or is older than ${LINK_MINUTES} minutes. Press “Open on phone” on your computer for a new one.`;
+    await authReady;
+    let u = auth.currentUser;
+    if (u && u.uid === owner) return sync({ apply: true });  // scanned on the computer it came from
+    if (!u || !u.isAnonymous) {
+      if (u) await auth.signOut();
+      try { u = (await auth.signInAnonymously()).user; } catch (e) { throw new Error(friendly(e)); }
+    }
+    try { await deckRef(owner).collection("links").doc(id).update({ claimedBy: u.uid }); }
+    catch (e) { throw new Error(/not-found|permission-denied/.test(e?.code || "") ? expired : friendly(e)); }
+    // the computer adds this phone to the account (right away while its QR code is open)
+    for (let i = 0; i < 80; i++) {
+      try {
+        const s = await deckRef(owner).get();
+        if (s.exists) { remember(u, owner, s.data().email); return sync({ apply: true }); }
+      } catch (e) { if (!/permission-denied/.test(e?.code || "")) throw new Error(friendly(e)); }
+      await new Promise((r) => setTimeout(r, 1500));
+    }
+    throw new Error("Your computer didn't confirm the phone. Open Review Deck on your computer, then scan a new code.");
   }
 
   // ---------------------------------------------------------------- saving on its own
@@ -292,9 +353,10 @@ const Account = (() => {
   return {
     ready,
     LINK_MINUTES,
-    user, signUp, logIn, logOut, sync, phoneLink, takeLink, autoSave,
+    user, signUp, logIn, logOut, sync, phoneLink, takeLink, autoSave, friendly,
     email: () => local.get("email"),
     signedIn: () => !!local.get("uid"),
+    isPhone: () => !!local.get("uid") && (local.get("owner") || local.get("uid")) !== local.get("uid"),  // linked by a QR code
     lastSaved: () => Number(local.get("savedAt") || 0),
     onData: (fn) => listeners.push(fn),
     // the "want to sign up?" pop-up: not more than once a week, never again after "Don't ask again"

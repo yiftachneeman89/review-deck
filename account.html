@@ -13,7 +13,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=14">
+  <link rel="stylesheet" href="style.css?v=15">
 </head>
 <body>
   <header class="topbar">
@@ -75,9 +75,11 @@
   </main>
 
   <script src="shared.js?v=7"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
-  <script src="account-config.js?v=1"></script>
-  <script src="account.js?v=1"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <script src="account-config.js?v=2"></script>
+  <script src="account.js?v=2"></script>
   <script>
   (() => {
     const $ = (id) => document.getElementById(id);
@@ -86,7 +88,7 @@
       signup: "Save your project and progress to an account, so they're safe and you can open them on your phone.",
     };
     const NOTE = {
-      login: "",
+      login: "Use the same email and password as IntuiTeacher Guitar if you have an account there.",
       signup: "Saved to your account: your project files, your progress and settings in all three tools, and your Gemini key (so it works on your phone too). Only you can read them.",
     };
     let tab = location.hash === "#signup" ? "signup" : "login";
@@ -130,13 +132,7 @@
       try {
         const email = $("email").value.trim(), password = $("password").value;
         if (tab === "signup") {
-          const r = await Account.signUp(email, password);
-          if (r.confirm) {
-            $("authOk").textContent = `Almost there: open the link we emailed to ${email}, then log in here.`;
-            $("authOk").hidden = false;
-            showTab("login");
-            return;
-          }
+          await Account.signUp(email, password);
         } else {
           await Account.logIn(email, password);
         }
@@ -152,6 +148,7 @@
     };
 
     $("logOut").onclick = async () => {
+      if (Account.email() && !confirm("Log out? Your data stays on this device. On a phone, you'd need a new code from your computer to link it again.")) return;
       await Account.logOut();
       $("signedIn").hidden = true;
       $("authForm").hidden = false;
@@ -171,15 +168,9 @@
     (async () => {
       if (!Account.ready) { $("offline").hidden = false; return; }
       const u = await Account.user().catch(() => null);
-      if (u) return showMe(u.email);
+      if (u) return showMe(u.isAnonymous ? `${Account.email() || "Your account"} (this phone)` : u.email);
       $("authForm").hidden = false;
       showTab(tab);
-      // back from the email confirmation link
-      if (/access_token|type=signup/.test(location.hash)) {
-        $("authOk").textContent = "Email confirmed. Log in to save your data.";
-        $("authOk").hidden = false;
-        showTab("login");
-      }
     })();
   })();
   </script>

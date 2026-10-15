@@ -4,12 +4,15 @@
   let signedIn = false;
   try { signedIn = !!localStorage.getItem("rd.acct.uid"); } catch {}
   if (!signedIn) return;
-  const add = (src, then) => {
+  const FB = "https://www.gstatic.com/firebasejs/10.12.2/firebase-";
+  const queue = [FB + "app-compat.js", FB + "auth-compat.js", FB + "firestore-compat.js", "/review-deck/account-config.js?v=2", "/review-deck/account.js?v=2"];
+  const next = () => {
+    const src = queue.shift();
+    if (!src) return;
     const s = document.createElement("script");
     s.src = src;
-    if (then) s.onload = then;
+    s.onload = next;
     document.head.appendChild(s);
   };
-  add("https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js", () =>
-    add("/review-deck/account-config.js?v=1", () => add("/review-deck/account.js?v=1")));
+  next();
 })();

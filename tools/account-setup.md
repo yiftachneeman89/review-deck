@@ -1,16 +1,17 @@
-# Switching on accounts (about 5 minutes, free)
+# Switching on accounts (Firebase, about 3 minutes)
 
-GitHub Pages only serves files, so accounts live in a free Supabase project.
-Until `account-config.js` is filled in, Review Deck works exactly as before and shows no account buttons.
+Accounts use the IntuiTeacher Guitar Firebase project (`firestorelearning-d6dc8`), in a new Firestore
+collection called **review deck**. It only uses Authentication and Firestore, so the free Spark plan is enough.
+Until `account-config.js` has an `apiKey`, Review Deck works as before and shows no account buttons.
 
-1. Go to <https://supabase.com>, click **Start your project**, and sign in with GitHub.
-2. **New project**: any name (e.g. `review-deck`), a database password (you won't need it again), the region closest to you. Free plan.
-3. When it's ready: **SQL Editor → New query**, paste all of `tools/account-setup.sql`, click **Run**. It should say "Success".
-4. **Authentication → URL Configuration**: set **Site URL** to `https://yiftachneeman89.github.io/review-deck/account.html`.
-5. Optional: **Authentication → Sign In / Providers → Email**: turn off **Confirm email** if you don't want to click a link in an email after signing up.
-6. **Project Settings → API** (or **Data API**): copy the **Project URL** and the **anon public** key into `account-config.js`.
-7. Publish (commit and push).
+1. <https://console.firebase.google.com> → the IntuiTeacher Guitar project → ⚙ **Project settings** → **Your apps** → **Add app** → **Web** (`</>`). Name it `Review Deck`, no hosting. Copy `apiKey` and `appId` from the config it shows into `account-config.js`.
+2. **Authentication → Sign-in method**: make sure **Email/Password** is on, and turn on **Anonymous** (the phone uses it when you scan the QR code).
+3. **Authentication → Settings → Authorized domains**: add `yiftachneeman89.github.io`.
+4. **Firestore Database → Rules**: paste `tools/firestore-rules.txt` *inside* the existing `match /databases/{database}/documents { … }` block, next to the guitar app's rules (don't replace them), then **Publish**.
+5. Publish Review Deck (commit and push).
 
-The anon key is meant to be public: the SQL turns on row-level security, so each account can only read and change its own row and its own project file.
+Review Deck accounts share the user list with IntuiTeacher Guitar, so the same email and password work in both.
 
-What an account stores: every `rd.` / `cc.` / `sm.` / `dc.` setting from the browser (progress, quiz rounds, cached Gemini answers, your Gemini key) and the project files you picked. Free plan limits: 500 MB database, 1 GB files, 50 MB per file. A free project pauses after a week with no use at all; opening it again in the Supabase dashboard wakes it up.
+What's stored, per account: `review deck/{uid}` (owner, email, linked phones, timestamps),
+`…/state/*` (every `rd.` / `cc.` / `sm.` / `dc.` setting: progress, quiz rounds, cached Gemini answers, your Gemini key),
+`…/project/*` (the project files, gzipped, in parts under 1 MB) and `…/links/*` (Open on phone codes).
