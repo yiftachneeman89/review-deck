@@ -120,6 +120,12 @@ const DeckStore = (() => {
 
     async project() { return (await get("project").catch(() => null)) || null; },
 
+    // A project from your account (another device): kept as it came, not linked to a folder here
+    async adopt(project, items) {
+      await put([["items", items], ["project", { ...project, linked: false, toolSaved: false }], ["dir", null]]);
+      keepForever();
+    },
+
     // -> { project, items: [{path, file}] } or null when nothing has been set up yet
     async load() {
       const project = await get("project").catch(() => null);
@@ -196,3 +202,4 @@ const DeckStore = (() => {
 
   return api;
 })();
+

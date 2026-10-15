@@ -859,7 +859,8 @@
     $("dropStatus").className = "drop-status";
     $("dropStatus").textContent = "Your files are kept in this browser. Review Deck sends your code to Google Gemini, with your own key, to list your features, explain code and make puzzles. This happens automatically after you sign in and when you open the hub.";
     $("setupError").hidden = true;
-    $("setupTitle").textContent = m === "newcode" ? "New code" : "Sign in";
+    $("setupTitle").textContent = m === "newcode" ? "New code" : "Get started";
+    $("haveAcct").hidden = m === "newcode" || !Account.ready || Account.signedIn();
     $("setupLead").textContent = m === "newcode"
       ? "Pick the project folder again. Code Check, Screen Map and Design Critic all switch to the new code. Your key stays unless you change it."
       : "Your code and Gemini key, once. All three tools use them, and nothing asks again.";
@@ -1031,20 +1032,148 @@
 
   setInterval(() => { if (!document.hidden) syncCode(); }, 30000);
 
+  // ---------------------------------------------------------------- your account (account.js)
+  // Saved to your account on its own; data from another device shows up here. "Open on phone"
+  // shows a one-time QR code that signs your phone in with the same data.
+
+  function toast(text, ms = 0) {
+    const t = $("acctToast");
+    t.textContent = text;
+    t.hidden = !text;
+    clearTimeout(toast.timer);
+    if (text && ms) toast.timer = setTimeout(() => { t.hidden = true; }, ms);
+  }
+
+  function accountButtons() {
+    const on = Account.ready;
+    $("phoneBtn").hidden = !on;
+    $("acctBtn").hidden = !on;
+    $("haveAcct").hidden = !on || Account.signedIn();
+    const email = Account.email();
+    $("acctBtn").textContent = Account.signedIn() ? "Account" : "Log in";
+    $("acctBtn").title = Account.signedIn() ? `Signed in as ${email} - your data is saved to this account` : "Log in or sign up to save your data to an account";
+  }
+
+  // a project that came from your account: Code Check needs its own copy of the code
+  async function rebuildCodeCheck() {
+    const saved = await DeckStore.load();
+    const key = store.get("key");
+    if (!saved || !key) return;
+    const read = await readProject(saved.items);
+    if (!read.files.length) return;
+    const was = store.json("project", {}) || {};
+    await Session.save(key, { ...was, name: saved.project.name, language: mainLanguage(read.files), files: read.files.length, lines: read.lines }, read.files);
+  }
+
+  Account.onData(async (r) => {
+    if (r.adopted) await rebuildCodeCheck();
+    RDTheme.set(RDTheme.get());   // the theme may have come with it
+    start();
+  });
+
+  // ---- the "want to sign up?" pop-up, for anyone who used Review Deck before accounts
+  function maybeAskSignup() {
+    if (!Account.shouldAsk() || evening) return;
+    const ask = () => { if (!document.querySelector("dialog[open]") && !$("deck").hidden) $("askSignup").showModal(); };
+    if ($("morning").open) $("morning").addEventListener("close", () => setTimeout(ask, 600), { once: true });
+    else setTimeout(ask, 1200);
+  }
+  $("asLater").onclick = () => { Account.snooze(false); $("askSignup").close(); };
+  $("asNever").onclick = () => { Account.snooze(true); $("askSignup").close(); };
+  $("asYes").onclick = () => Account.snooze(false);
+  $("askSignup").addEventListener("cancel", () => Account.snooze(false));
+
+  // ---- open on phone
+  let qrLib = null;
+  function loadQr() {
+    qrLib ||= new Promise((ok, fail) => {
+      const s = document.createElement("script");
+      s.src = "https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js";
+      s.onload = () => ok(window.qrcode);
+      s.onerror = () => { qrLib = null; fail(new Error("Couldn't load the QR code maker. Check your connection.")); };
+      document.head.appendChild(s);
+    });
+    return qrLib;
+  }
+
+  async function showPhone(password) {
+    const body = $("phBody");
+    if (!$("phoneSheet").open) $("phoneSheet").showModal();
+    if (!Account.signedIn()) {
+      $("phTitle").textContent = "Sign in first";
+      body.innerHTML = `
+        <p class="ph-text">Your phone opens Review Deck with your project and progress from your account. Sign up (or log in) on this computer first - it takes a few seconds.</p>
+        <div class="ask-actions"><a class="pill-btn" href="account.html">Log in</a><a class="pill-btn dark" href="account.html#signup">Sign up</a></div>`;
+      return;
+    }
+    $("phTitle").textContent = "Scan with your phone";
+    body.innerHTML = busy("Saving your latest data to your account…");
+    try {
+      const [url, qrcode] = await Promise.all([Account.phoneLink(password), loadQr()]);
+      const qr = qrcode(0, "M");
+      qr.addData(url);
+      qr.make();
+      body.innerHTML = `
+        <div class="ph-qr">${qr.createSvgTag({ cellSize: 6, margin: 3, scalable: true })}</div>
+        <p class="ph-text">Point your phone's camera at the code and open the link. Review Deck opens there signed in as <b>${esc(Account.email())}</b>, with your project, progress and Gemini key.</p>
+        <p class="note">The code works once, for ${Account.LINK_MINUTES} minutes. For another phone, open this again.</p>`;
+    } catch (e) {
+      if (e.code === "password") {
+        body.innerHTML = `
+          <form class="ph-pass" id="phPass">
+            <p class="ph-text">Your last phone code was used. Enter your password to make a new one.</p>
+            <input type="password" class="field" id="phPw" autocomplete="current-password" placeholder="Password" required>
+            <div class="ask-actions"><button class="pill-btn dark" type="submit">Make the code</button></div>
+          </form>`;
+        $("phPw").focus();
+        $("phPass").onsubmit = (ev) => { ev.preventDefault(); showPhone($("phPw").value); };
+        return;
+      }
+      if (e.code === "signin") { accountButtons(); return showPhone(); }
+      body.innerHTML = `<p class="setup-error">${esc(e.message || e)}</p><div class="ask-actions"><button class="pill-btn" id="phRetry">Try again</button></div>`;
+      $("phRetry").onclick = () => showPhone(password);
+    }
+  }
+  $("phoneBtn").onclick = () => showPhone();
+
+  // ---- arriving on the phone from the QR code
+  async function arriveFromPhoneLink() {
+    if (!/^#phone=/.test(location.hash)) return false;
+    toast("Signing you in and bringing your data…");
+    let r = null;
+    try {
+      r = await Account.takeLink();
+      toast("You're signed in - everything from your computer is here.", 5000);
+    } catch (e) {
+      toast(e.message || String(e), 12000);
+    }
+    accountButtons();
+    return !!(r && (r.applied || r.adopted));  // then the data listener starts the page
+  }
+
+  async function accountSync() {
+    if (!Account.signedIn()) return;
+    try { await Account.sync(); } catch (e) { console.warn("Review Deck account: couldn't save", e); }
+    accountButtons();
+  }
+
   // ---------------------------------------------------------------- start
 
   let started = false;
   async function start() {
     const project = await DeckStore.project();
     const signedIn = project && await Session.load().catch(() => false);
+    accountButtons();
     if (!signedIn) return showSetup("signin");
     DeckStore.keepForever();
     showDeck(project);
     if (!started) {
       started = true;
       if (evening) showEvening(); else maybeMorning();
+      maybeAskSignup();
     }
     await syncCode();
+    accountSync();
     runFeatures();
   }
 
@@ -1060,5 +1189,6 @@
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
 
   window.ReviewDeck = { start };
-  start();
+  Account.autoSave();
+  arriveFromPhoneLink().then((came) => { if (!came) start(); });
 })();
