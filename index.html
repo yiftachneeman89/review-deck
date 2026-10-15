@@ -20,8 +20,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=15">
-  <link rel="stylesheet" href="home.css?v=14">
+  <link rel="stylesheet" href="style.css?v=16">
+  <link rel="stylesheet" href="home.css?v=15">
 </head>
 <body>
   <header class="topbar">
@@ -45,9 +45,8 @@
         <button type="button" data-theme-choice="dark">Black</button>
       </div>
       <button class="pill-btn" id="syncBtn" hidden></button>
-      <button class="pill-btn small-btn" id="phoneBtn" title="Scan a QR code to open Review Deck on your phone, signed in, with your data" hidden>
+      <button class="pill-btn small-btn" id="phoneBtn" title="Scan a QR code to open Review Deck on your phone with your code and progress">
         <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="2.5" width="12" height="19" rx="2.5"/><path d="M10.5 18.5h3"/></svg>Open on phone</button>
-      <a class="pill-btn small-btn" id="acctBtn" href="account.html" hidden>Log in</a>
       <button class="pill-btn dark" id="newCode" title="Pick your project folder again - all three tools use the new code">New code</button>
     </div>
   </header>
@@ -55,8 +54,7 @@
   <main>
     <section class="setup" id="setup" hidden>
       <form class="setup-card" id="setupForm">
-        <h2 id="setupTitle">Get started</h2>
-        <p class="have-acct" id="haveAcct" hidden>Already have an account? <a href="account.html">Log in</a> to bring your project and progress here.</p>
+        <h2 id="setupTitle">Sign in</h2>
         <p class="lead" id="setupLead">Your code and Gemini key, once. All three tools use them, and nothing asks again.</p>
 
         <div class="step">
@@ -179,7 +177,7 @@
     <div class="sheet-body" id="wBody"></div>
   </dialog>
 
-  <!-- open on phone: a one-time QR code that signs your phone in with your data -->
+  <!-- open on phone: a QR code that copies your project and progress to your phone -->
   <dialog class="sheet small-sheet" id="phoneSheet" aria-labelledby="phTitle">
     <div class="sheet-head">
       <div><p class="mini-h">Open on phone</p><h2 id="phTitle">Scan with your phone</h2></div>
@@ -188,33 +186,14 @@
     <div class="sheet-body" id="phBody"></div>
   </dialog>
 
-  <!-- for people who used Review Deck before accounts existed -->
-  <dialog class="sheet small-sheet" id="askSignup" aria-labelledby="asTitle">
-    <div class="sheet-body ask-body">
-      <p class="mini-h">New: accounts</p>
-      <h2 id="asTitle">Want to sign up to save your data?</h2>
-      <p>Your project and progress are only in this browser right now. With an account they're saved, and you can open Review Deck on your phone with everything in it.</p>
-      <div class="ask-actions">
-        <button class="pill-btn" id="asNever">Don't ask again</button>
-        <button class="pill-btn" id="asLater">Not now</button>
-        <a class="pill-btn dark" href="account.html#signup" id="asYes">Sign up</a>
-      </div>
-    </div>
-  </dialog>
-
-  <div class="acct-toast" id="acctToast" role="status" hidden></div>
+  <div class="phone-toast" id="phoneToast" role="status" hidden></div>
 
   <!-- the evening reminder (opened by the EveningReviewDeck scheduled task) -->
   <div class="evening" id="evening" hidden>
     <div class="ev-card" id="evCard"></div>
   </div>
 
-  <script src="shared.js?v=7"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-  <script src="account-config.js?v=2"></script>
-  <script src="account.js?v=2"></script>
+  <script src="shared.js?v=8"></script>
   <script src="/code-check/js/ingest.js?v=202610131800"></script>
   <script src="/code-check/js/chunks.js?v=202610131800"></script>
   <script src="/code-check/js/ai.js?v=202610131800"></script>
@@ -225,6 +204,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
   <script src="findgame.js?v=14"></script>
   <script src="explain.js?v=13"></script>
-  <script src="app.js?v=18"></script>
+  <script src="phone.js?v=1"></script>
+  <script src="app.js?v=19"></script>
 </body>
 </html>
